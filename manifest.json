@@ -1,0 +1,15 @@
+{
+	"name": "PageBuilder",
+	"description": "Reusable JS page builder, with PHP server-side rendering",
+	"version": "0.1.0",
+	"dependencies": {
+		"Form": ">=1.5.0",
+		"FrontEnd": ">=1.2.3",
+		"Core": ">=2.10.0"
+	},
+	"assets-position": "foot",
+	"requires": [
+		"model/assets",
+		"model/images"
+	]
+}
