@@ -1,4 +1,4 @@
-<?php namespace Model\PageBuilder\Renderer;
+<?php namespace Model\PageBuilder;
 
 /**
  * Data-provider interface for dynamic / data-bound content (ModEl-namespaced

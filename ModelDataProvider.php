@@ -1,7 +1,6 @@
 <?php namespace Model\PageBuilder;
 
 use Model\Core\Core;
-use Model\PageBuilder\Renderer\DataProvider;
 
 require_once __DIR__ . '/renderer/DataProvider.php';
 

@@ -1,4 +1,4 @@
-<?php namespace Model\PageBuilder\Renderer;
+<?php namespace Model\PageBuilder;
 
 use InvalidArgumentException;
 use RuntimeException;
