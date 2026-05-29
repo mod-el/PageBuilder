@@ -2,7 +2,7 @@
 
 use Model\Core\Core;
 
-require_once __DIR__ . '/renderer/DataProvider.php';
+require_once __DIR__ . '/DataProvider.php';
 
 /**
  * ModEl implementation of the page-builder DataProvider (docs/dynamic-data.md §5).
