@@ -29,7 +29,7 @@ class Config extends Module_Config
 				. " *         // 'fields' optional: auto-introspected from metadata if omitted\n"
 				. " *     ],\n"
 				. " *     'custom' => [\n"
-				. " *         'retriever' => function (array $filters, ?int $limit = null) { return []; },  // returns a list of items ($filters is currently unused, future implementation)\n"
+				. " *         'retriever' => function (array \$filters, ?int \$limit = null) { return []; },  // returns a list of items (\$filters is currently unused, future implementation)\n"
 				. " *         'fields'    => [  // required for a retriever source\n"
 				. " *             ['key' => 'name', 'label' => 'Nome', 'type' => 'text'],\n"
 				. " *         ],\n"
