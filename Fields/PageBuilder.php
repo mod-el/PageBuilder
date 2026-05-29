@@ -30,6 +30,28 @@ class PageBuilder extends Field
 		parent::renderWithLang($attributes, $lang);
 	}
 
+	/**
+	 * Client-side form-build path (used by the admin's JS form builder, mirrored
+	 * by FieldPageBuilder.js). Must carry the same data-pb-* attributes that
+	 * renderWithLang() emits server-side, or a JS-constructed field mounts with no
+	 * languages and no dynamic-data sources.
+	 */
+	public function getJavascriptDescription(): array
+	{
+		$response = parent::getJavascriptDescription();
+
+		if (!isset($response['attributes']) or !is_array($response['attributes']))
+			$response['attributes'] = [];
+
+		$response['attributes']['data-pb-languages'] = json_encode($this->detectLanguages());
+
+		$descriptors = $this->dataSourceDescriptors();
+		if (!empty($descriptors))
+			$response['attributes']['data-pb-datasources'] = json_encode($descriptors);
+
+		return $response;
+	}
+
 	private function dataSourceDescriptors(): array
 	{
 		try {
