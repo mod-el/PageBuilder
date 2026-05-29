@@ -16,4 +16,5 @@ $variant = $config['variant'] ?? 'primary';
 $href = Renderer::escapeAttr(isset($bindings['href']) ? $resolveField($bindings['href']) : ($config['href'] ?? '#'));
 $label = Renderer::escapeHtml(isset($bindings['label']) ? $resolveField($bindings['label']) : ($config['label'] ?? ''));
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
-echo '<a class="btn btn-' . $variant . $extra . '" href="' . $href . '">' . $label . '</a>';
+$newTab = !empty($config['newTab']) ? ' target="_blank" rel="noopener noreferrer"' : '';
+echo '<a class="btn btn-' . $variant . $extra . '" href="' . $href . '"' . $newTab . '>' . $label . '</a>';
