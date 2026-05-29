@@ -59,7 +59,7 @@ class Sources
 			$src['where'] = (isset($src['where']) and is_array($src['where'])) ? $src['where'] : [];
 			$src['joins'] = (isset($src['joins']) and is_array($src['joins'])) ? $src['joins'] : [];
 			if (!isset($src['label']) or !is_string($src['label']))
-				$src['label'] = $hasElement ? $src['element'] : ucfirst($key);
+				$src['label'] = ucfirst($key);
 
 			$out[$key] = $src;
 		}

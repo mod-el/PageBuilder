@@ -23,6 +23,7 @@ class Config extends Module_Config
 				. " *\n"
 				. " * \$config['sources'] = [\n"
 				. " *     'hotels' => [\n"
+				. " *         'label'   => 'Hotel',           // optional display name (defaults to ucfirst(key))\n"
 				. " *         'element' => 'TravioService',  // ORM element class\n"
 				. " *         'where'   => ['type' => 2],      // optional ORM where\n"
 				. " *         'joins'   => [],                 // optional ORM joins\n"
