@@ -43,7 +43,7 @@ class PageBuilder extends Module
 	public function getRenderer(): Renderer
 	{
 		if ($this->renderer === null)
-			$this->renderer = new Renderer(__DIR__ . '/templates', $this->currentLang(), null, $this->buildProvider());
+			$this->renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), null, $this->buildProvider());
 		return $this->renderer;
 	}
 
