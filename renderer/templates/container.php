@@ -14,7 +14,6 @@ if ($padding !== null) {
 		$paddingCls = 'p-0';
 }
 $directionCls = Renderer::directionClasses($config['direction'] ?? null);
-$extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
 
 // Inline style + container class. Field order mirrors the JS render() exactly
 // (render-parity invariant). Image URL is double-quoted on purpose: `"` encodes
@@ -37,4 +36,8 @@ if ($maxWidth > 0)
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
 $containerCls = $maxWidth > 0 ? ' container' : '';
+// A centered container's auto horizontal margins win only if no explicit
+// horizontal margin class is present, so drop it (vertical margin is kept).
+$effectiveExtra = $maxWidth > 0 ? Renderer::dropHorizontalMargin($extraClasses) : $extraClasses;
+$extra = $effectiveExtra !== '' ? ' ' . $effectiveExtra : '';
 echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $extra . '"' . $styleAttr . '>' . implode('', $children) . '</div>';

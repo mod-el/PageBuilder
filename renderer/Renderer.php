@@ -13,11 +13,14 @@ use RuntimeException;
  *   $renderer = new \Model\PageBuilder\Renderer\Renderer(__DIR__ . '/templates', 'it');
  *   $html     = $renderer->render($doc, ['lang' => 'en']);
  */
+require_once __DIR__ . '/DataProvider.php';
+
 class Renderer
 {
 	private string $templatesPath;
 	private string $defaultLang;
 	private array $registry;
+	private ?DataProvider $data;
 
 	private const SIDE_PREFIX = [
 		'top'    => 't',
@@ -30,11 +33,30 @@ class Renderer
 
 	private const BREAKPOINTS = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
 
-	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null)
+	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null)
 	{
 		$this->templatesPath = rtrim($templatesPath, "/\\");
 		$this->defaultLang = $defaultLang;
 		$this->registry = $registry ?? require __DIR__ . '/registry.php';
+		$this->data = $data;
+	}
+
+	// Resolve a binding to a list via the active provider. No provider → empty
+	// list (the contract's "no fallbacks for unavailable data" stance).
+	public function query(array $binding, array $params, $scope, string $lang): array
+	{
+		if ($this->data === null)
+			return [];
+		return $this->data->query($binding, $params, $scope, $lang);
+	}
+
+	// Resolve one field of the current scope item via the active provider. No
+	// provider or no scope → '' (mirrors JS ctx.resolveField). Does NOT escape.
+	public function resolveField(string $field, $scope, string $lang)
+	{
+		if ($this->data === null or $scope === null)
+			return '';
+		return $this->data->resolve($scope, $field, $lang);
 	}
 
 	public function render(array $doc, array $opts = []): string
@@ -54,45 +76,80 @@ class Renderer
 		return $out;
 	}
 
-	private function renderNode(array $node, string $lang): string
+	// $scope is the current data item (null at root); $items the nearest resolved
+	// list. A node's common `binding` (contract §4.2) is resolved here to a list:
+	// an `iterates` component renders its authored children once per item (scope =
+	// item), any other bound node exposes the list to its subtree as $items, and
+	// an unbound node inherits the nearest ancestor's list. Mirror of the JS
+	// renderNode walk (src/core/editor.js) — preview output stays byte-identical.
+	private function renderNode(array $node, string $lang, $scope = null, ?array $items = null): string
 	{
 		$type = (isset($node['type']) && is_string($node['type'])) ? $node['type'] : '';
 		if (!isset($this->registry[$type]))
 			return '<!-- pb: unknown type "' . self::escapeHtml($type) . '" -->';
 
 		$meta = $this->registry[$type];
+		$rawConfig = (isset($node['config']) && is_array($node['config'])) ? $node['config'] : [];
+		$supportsCommon = ($meta['supportsCommon'] ?? true) !== false;
 
+		// Resolve a common binding to a list (no provider → empty). childItems is
+		// the node's own list if bound, else the inherited ancestor list. A binding
+		// naming no source/relation/query is treated as absent (inherit, not empty).
+		$binding = ($supportsCommon and isset($rawConfig['binding']) and is_array($rawConfig['binding'])) ? $rawConfig['binding'] : null;
+		if ($binding !== null and !(isset($binding['source']) or isset($binding['relation']) or isset($binding['query'])))
+			$binding = null;
+		$boundList = null;
+		if ($binding !== null) {
+			$params = (isset($binding['params']) and is_array($binding['params'])) ? $binding['params'] : [];
+			$boundList = $this->query($binding, $params, $scope, $lang);
+		}
+		$childItems = $boundList !== null ? $boundList : $items;
+
+		$kids = (isset($node['children']) and is_array($node['children'])) ? $node['children'] : [];
 		$children = [];
-		if (isset($node['children']) and is_array($node['children'])) {
-			foreach ($node['children'] as $child) {
+		if (($meta['iterates'] ?? false) === true) {
+			$list = $boundList !== null ? $boundList : ($items ?? []);
+			foreach ($list as $item) {
+				$buf = '';
+				foreach ($kids as $child) {
+					if (is_array($child))
+						$buf .= $this->renderNode($child, $lang, $item, $list);
+				}
+				$children[] = $buf;
+			}
+		} else {
+			foreach ($kids as $child) {
 				if (is_array($child))
-					$children[] = $this->renderNode($child, $lang);
+					$children[] = $this->renderNode($child, $lang, $scope, $childItems);
 			}
 		}
 
-		$rawConfig = (isset($node['config']) && is_array($node['config'])) ? $node['config'] : [];
 		$config = $this->resolveMultilang($rawConfig, $meta['multilang'] ?? [], $lang);
-
-		$supportsCommon = ($meta['supportsCommon'] ?? true) !== false;
 		$extraClasses = $supportsCommon ? self::computeExtraClasses($rawConfig) : '';
 
-		return $this->loadTemplate($type, $config, $children, $extraClasses);
+		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems);
 	}
 
-	private function loadTemplate(string $type, array $config, array $children, string $extraClasses): string
+	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null): string
 	{
 		$path = $this->templatesPath . '/' . $type . '.php';
 		if (!file_exists($path))
 			throw new RuntimeException("template not found for type \"$type\" at $path");
 
 		$renderer = $this;
-		$run = static function (string $__path, array $config, array $children, string $extraClasses, Renderer $renderer): void {
+		// Bound to the active provider + current scope/lang (contract §4.3 mirror
+		// of JS ctx.resolveField). Templates call $resolveField('name') to read a
+		// field of the current data item, then escape the result themselves.
+		$resolveField = static function (string $field) use ($renderer, $scope, $lang) {
+			return $renderer->resolveField($field, $scope, $lang);
+		};
+		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField): void {
 			include $__path;
 		};
 
 		ob_start();
 		try {
-			$run($path, $config, $children, $extraClasses, $renderer);
+			$run($path, $config, $children, $extraClasses, $lang, $scope, $items, $renderer, $resolveField);
 		} catch (\Throwable $e) {
 			ob_end_clean();
 			throw $e;
@@ -200,6 +257,62 @@ class Renderer
 		if ($c !== '')
 			$parts[] = $c;
 		return implode(' ', $parts);
+	}
+
+	// Mirror of _common.js dropHorizontalMargin. A centered Bootstrap `container`
+	// centers via auto horizontal margins; an explicit horizontal margin utility
+	// overrides them, so strip it while keeping the vertical one (uniform `m-N`
+	// collapses to `my-N`). Both renderers must transform identically.
+	public static function dropHorizontalMargin(string $classes): string
+	{
+		if ($classes === '')
+			return $classes;
+		$out = [];
+		foreach (explode(' ', $classes) as $token) {
+			if ($token === '')
+				continue;
+			if (preg_match('/^m[xse]-(?:(?:sm|md|lg|xl|xxl)-)?[0-5]$/', $token))
+				continue;
+			if (preg_match('/^m-((?:sm|md|lg|xl|xxl)-)?([0-5])$/', $token, $m))
+				$out[] = 'my-' . $m[1] . $m[2];
+			else
+				$out[] = $token;
+		}
+		return implode(' ', $out);
+	}
+
+	// Mirror of _common.js chipEscape. Escapes ONLY & < > " (NOT ') so JS-preview
+	// and PHP output stay byte-identical: ' is the one char whose JS (&#39;) and
+	// PHP (&apos;) encodings diverge, and it is valid literal text inside an
+	// element. `&` is replaced first so later passes never double-encode.
+	public static function chipEscape($s): string
+	{
+		return str_replace(
+			['&', '<', '>', '"'],
+			['&amp;', '&lt;', '&gt;', '&quot;'],
+			(string)($s ?? '')
+		);
+	}
+
+	// Mirror of _common.js resolveChips. Replaces each
+	// `<span … data-pb-field="KEY" …>…</span>` chip with a clean
+	// `<span data-pb-field="KEY">resolved</span>`: the inner becomes
+	// chipEscape($resolve(KEY)) and editor-only attributes (the editor adds
+	// contenteditable="false" to make the chip atomic) are dropped. The opening
+	// tag is RECONSTRUCTED from the captured KEY so JS and PHP stay byte-identical.
+	// $resolve returns the unescaped value ('' when no provider/scope). Static-
+	// only fast path: content with no chip is returned untouched.
+	public static function resolveChips(string $html, callable $resolve): string
+	{
+		if (strpos($html, 'data-pb-field=') === false)
+			return $html;
+		return preg_replace_callback(
+			'/<span\b[^>]*?\bdata-pb-field="([^"]*)"[^>]*>(.*?)<\/span>/s',
+			static function (array $m) use ($resolve): string {
+				return '<span data-pb-field="' . $m[1] . '">' . self::chipEscape($resolve($m[1])) . '</span>';
+			},
+			$html
+		);
 	}
 
 	public static function directionClasses(?string $direction): string

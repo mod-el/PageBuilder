@@ -41,6 +41,39 @@ function parseLanguages(textarea) {
 	return ['it'];
 }
 
+// Sources are declared once globally (PageBuilder module config), so the sample
+// data is the same for every field on the page — fetch it at most once.
+let sampleDataPromise = null;
+
+function fetchSampleData() {
+	if (sampleDataPromise === null) {
+		sampleDataPromise = fetch(PATH + 'page-builder-sample-data', {
+			credentials: 'include',
+		})
+			.then((res) => (res.ok ? res.json() : null))
+			.then((data) => (data && data.sources && typeof data.sources === 'object' ? data.sources : {}))
+			.catch((e) => {
+				console.warn('[page-builder] failed to fetch sample data', e);
+				return {};
+			});
+	}
+	return sampleDataPromise;
+}
+
+function parseDataSources(textarea) {
+	const raw = textarea.getAttribute('data-pb-datasources');
+	if (!raw)
+		return null;
+	try {
+		const ds = JSON.parse(raw);
+		if (Array.isArray(ds) && ds.length)
+			return ds;
+	} catch (e) {
+		console.warn('[page-builder] failed to parse data-pb-datasources', e);
+	}
+	return null;
+}
+
 async function uploadImage(file) {
 	const fd = new FormData();
 	fd.append('upload', file);
@@ -86,7 +119,22 @@ export async function checkPageBuilder() {
 		const languages = parseLanguages(textarea);
 		const value = parseDoc(textarea.value);
 
-		const instance = new window.PageBuilder(wrapper, {
+		// Merge editor-preview sample data into the configured descriptors (if any),
+		// so dynamic content previews with real values. Falls back to descriptors
+		// without sample (chips still insert; preview just lacks live values).
+		const dataSources = parseDataSources(textarea);
+		if (dataSources) {
+			try {
+				const sampleMap = await fetchSampleData();
+				for (const src of dataSources) {
+					if (src && sampleMap[src.key])
+						src.sample = sampleMap[src.key];
+				}
+			} catch (e) {
+			}
+		}
+
+		const options = {
 			value,
 			languages,
 			defaultLanguage: languages[0],
@@ -95,7 +143,11 @@ export async function checkPageBuilder() {
 				triggerOnChange(textarea);
 			},
 			onUploadImage: uploadImage,
-		});
+		};
+		if (dataSources)
+			options.dataSources = dataSources;
+
+		const instance = new window.PageBuilder(wrapper, options);
 
 		const index = pbInstancesArr.push(instance) - 1;
 		textarea.setAttribute('data-pb-attached', String(index));

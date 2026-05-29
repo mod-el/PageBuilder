@@ -18,8 +18,32 @@ class PageBuilder extends Field
 
 		$attributes['data-pb-languages'] = json_encode($this->detectLanguages());
 
+		// Dynamic-data authoring: expose the configured data sources to the editor
+		// as `dataSources` descriptors (fields only — init.js fetches sample data
+		// from the page-builder-sample-data route and merges it). Absent/empty config → no
+		// attribute, so the editor mounts exactly as before.
+		$descriptors = $this->dataSourceDescriptors();
+		if (!empty($descriptors))
+			$attributes['data-pb-datasources'] = json_encode($descriptors);
+
 		$this->options['type'] = 'textarea';
 		parent::renderWithLang($attributes, $lang);
+	}
+
+	private function dataSourceDescriptors(): array
+	{
+		try {
+			if (!$this->model->isLoaded('PageBuilder'))
+				$this->model->load('PageBuilder');
+			$config = $this->model->_PageBuilder->retrieveConfig();
+			$sources = (isset($config['sources']) and is_array($config['sources'])) ? $config['sources'] : [];
+			if (empty($sources))
+				return [];
+			$helper = new \Model\PageBuilder\Sources($this->model);
+			return $helper->descriptors($sources);
+		} catch (\Throwable $e) {
+			return [];
+		}
 	}
 
 	public function getText(array $options = []): string
