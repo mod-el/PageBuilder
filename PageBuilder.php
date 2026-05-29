@@ -1,7 +1,7 @@
 <?php namespace Model\PageBuilder;
 
 use Model\Core\Module;
-use Model\PageBuilder\Renderer\Renderer;
+use Model\PageBuilder\Renderer;
 use Model\PageBuilder\ModelDataProvider;
 use Model\PageBuilder\Sources;
 
