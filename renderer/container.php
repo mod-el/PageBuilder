@@ -79,7 +79,14 @@ if ($isStack) {
 	// Each layer gets a concrete, DOM-order z-index + position:relative so it forms
 	// its OWN stacking context — otherwise a positioned descendant (e.g. a Bootstrap
 	// .carousel) paints above a later layer's static content (mirror of JS render).
-	$inner = '';
+	// Pointer-events pass-through: structural wrappers (`.pb-layer` + nested
+	// `.pb-container`) fill the grid cell, so without this an upper layer swallows
+	// every click — even over transparent gaps — blocking content behind it (e.g. a
+	// carousel's controls under an overlaid form). The wrappers are made transparent
+	// to the pointer; their real content (`> :not(.pb-container)`) re-enables it.
+	// Emitted as a self-contained <style> (display:none, not a grid item); the stack
+	// design ships no external CSS so the rule travels with the markup (mirror of JS).
+	$inner = '<style>.pb-stack .pb-layer,.pb-stack .pb-container{pointer-events:none}.pb-stack .pb-layer>:not(.pb-container),.pb-stack .pb-container>:not(.pb-container){pointer-events:auto}</style>';
 	$layerIndex = 0;
 	foreach ($children as $child) {
 		$inner .= '<div class="pb-layer" style="grid-area:1/1;position:relative;z-index:' . $layerIndex . '">' . $child . '</div>';

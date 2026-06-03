@@ -29,6 +29,7 @@ class AssetsProvider extends AbstractAssetsProvider
 					['path' => 'model/PageBuilder/files/page-builder.min.css', 'cacheable' => false],
 					['path' => 'model/PageBuilder/files/page-builder.min.js', 'withTags' => ['position' => 'foot'], 'cacheable' => false],
 					['path' => 'model/PageBuilder/files/init.js', 'withTags' => ['position' => 'foot'], 'cacheable' => false],
+					['path' => 'model/PageBuilder/files/FieldPageBuilder.js', 'withTags' => ['position' => 'foot']],
 				],
 			],
 		];
