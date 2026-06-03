@@ -26,6 +26,7 @@ use Model\ProvidersFinder\AbstractProvider;
  *       'supportsCommon'  => true,                          // optional, default true
  *       'minWidth'        => 200,                            // optional
  *       'template'        => __DIR__ . '/PageBuilder/slider.php',  // required, must exist
+ *       'placeholder_template' => __DIR__ . '/PageBuilder/slider.placeholder.php', // optional editor-only stand-in
  *   ]
  *
  * The PHP `template` is the single source of truth for public rendering. A LEAF
@@ -33,6 +34,12 @@ use Model\ProvidersFinder\AbstractProvider;
  * its preview from the render-node route. A CONTAINER (`acceptsChildren`, usually
  * with `iterates`) is rendered in-canvas by the editor's default container render
  * (so its children stay authorable) and on the public side by this template.
+ *
+ * Optional `placeholder_template`: a stand-in template the editor renders instead
+ * of the real one while authoring (e.g. a static frame for a component whose real
+ * markup needs runtime data or animates). It only affects the render-node route,
+ * so it applies to LEAF (server-rendered) components — a CONTAINER is already drawn
+ * by the editor's neutral default container render. Public output is unaffected.
  * `configSchema` must be serializable — `options` must be arrays and `when`
  * predicates / closures are unsupported (they can't cross to the JS editor).
  *

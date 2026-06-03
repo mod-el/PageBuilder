@@ -36,7 +36,8 @@ class PageBuilderController extends Controller
 	// POST actions. `render-node`: render one node to preview HTML for a custom
 	// server-rendered component (the editor has no JS render for those; the PHP
 	// template is the source of truth, so preview === public output). The node is
-	// wrapped in a one-node document and rendered via the public Renderer.
+	// wrapped in a one-node document and rendered via the Renderer in editor mode,
+	// so a component's optional `placeholder_template` stands in for its real one.
 	public function post()
 	{
 		if ($this->model->getRequest(1) !== 'render-node')
@@ -51,7 +52,7 @@ class PageBuilderController extends Controller
 			$lang = (isset($payload['lang']) and is_string($payload['lang']) and $payload['lang'] !== '') ? $payload['lang'] : null;
 			$doc = ['version' => 1, 'root' => [$payload['node']]];
 
-			return ['html' => $this->model->_PageBuilder->render($doc, $lang)];
+			return ['html' => $this->model->_PageBuilder->render($doc, $lang, true)];
 		} catch (\Throwable $e) {
 			http_response_code(500);
 			return ['error' => ['message' => $e->getMessage()]];

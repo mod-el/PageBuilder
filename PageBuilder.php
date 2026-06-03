@@ -21,8 +21,13 @@ use Model\PageBuilder\Components;
 class PageBuilder extends Module
 {
 	private ?Renderer $renderer = null;
+	private ?Renderer $editorRenderer = null;
 
-	public function render($value, ?string $lang = null): string
+	// $forEditor selects the editor-preview renderer, where a custom component's
+	// optional `placeholder_template` stands in for its real `template` (lighter /
+	// neutral markup while authoring). Only the render-node route passes it true;
+	// public rendering always uses the real templates.
+	public function render($value, ?string $lang = null, bool $forEditor = false): string
 	{
 		if ($value === null or $value === '')
 			return '';
@@ -38,24 +43,32 @@ class PageBuilder extends Module
 			return '';
 
 		$lang ??= $this->currentLang();
-		return $this->getRenderer()->render($value, ['lang' => $lang]);
+		return $this->getRenderer($forEditor)->render($value, ['lang' => $lang]);
 	}
 
-	public function getRenderer(): Renderer
+	public function getRenderer(bool $forEditor = false): Renderer
 	{
-		if ($this->renderer === null) {
-			$components = $this->components();
-			// No custom components → null registry/templateMap, so the Renderer loads
-			// the built-in registry.php and behaves exactly as before.
-			$registry = null;
-			$templateMap = null;
-			if (!empty($components)) {
-				$registry = array_merge(require __DIR__ . '/registry.php', Components::registryMeta($components));
-				$templateMap = Components::templateMap($components);
-			}
-			$this->renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), $registry, $this->buildProvider(), $templateMap);
+		$cached = $forEditor ? $this->editorRenderer : $this->renderer;
+		if ($cached !== null)
+			return $cached;
+
+		$components = $this->components();
+		// No custom components → null registry/templateMap, so the Renderer loads
+		// the built-in registry.php and behaves exactly as before.
+		$registry = null;
+		$templateMap = null;
+		if (!empty($components)) {
+			$registry = array_merge(require __DIR__ . '/registry.php', Components::registryMeta($components));
+			// Editor preview prefers placeholder_template where a component declares one.
+			$templateMap = Components::templateMap($components, $forEditor);
 		}
-		return $this->renderer;
+		$renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), $registry, $this->buildProvider(), $templateMap);
+
+		if ($forEditor)
+			$this->editorRenderer = $renderer;
+		else
+			$this->renderer = $renderer;
+		return $renderer;
 	}
 
 	// Custom components from two sources, merged: packages that ship an

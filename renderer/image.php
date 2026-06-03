@@ -15,13 +15,14 @@ $bindings = (isset($config['bindings']) and is_array($config['bindings'])) ? $co
 $src = Renderer::escapeAttr(isset($bindings['src']) ? $resolveField($bindings['src']) : ($config['src'] ?? ''));
 $alt = Renderer::escapeAttr(isset($bindings['alt']) ? $resolveField($bindings['alt']) : ($config['alt'] ?? ''));
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
-// Optional explicit sizing (px), fixed order for byte-parity with the JS render.
-// All empty → no style attr, so the default img-fluid (max-width:100%) governs.
+// Optional explicit sizing (unit-aware), fixed order for byte-parity with the
+// JS render. All empty → no style attr, so the default img-fluid (max-width:100%)
+// governs.
 $styleParts = [];
 foreach ([['width', 'width'], ['height', 'height'], ['maxWidth', 'max-width'], ['maxHeight', 'max-height']] as $pair) {
-	$n = isset($config[$pair[0]]) ? (float)$config[$pair[0]] : 0;
-	if ($n > 0)
-		$styleParts[] = $pair[1] . ':' . $n . 'px';
+	$dim = Renderer::dimensionValue($config[$pair[0]] ?? null);
+	if ($dim !== '')
+		$styleParts[] = $pair[1] . ':' . $dim;
 }
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';

@@ -31,6 +31,7 @@
  *       'supportsCommon' => true,                          // optional, default true
  *       'minWidth'       => 200,                            // optional
  *       'template'       => __DIR__ . '/components/pricing-card.php',  // required, must exist
+ *       'placeholder_template' => __DIR__ . '/components/pricing-card.placeholder.php', // optional editor-only stand-in
  *   ]
  *
  * A component may be a LEAF (no children, server-rendered via the render-node
@@ -45,7 +46,10 @@ class Components
 	/**
 	 * Drop invalid entries and fill defaults. A valid component declares a `template`
 	 * whose file exists (a typo'd path silently drops the component, like Sources'
-	 * graceful degradation, rather than breaking the whole editor). Pure.
+	 * graceful degradation, rather than breaking the whole editor). An optional
+	 * `placeholder_template` (rendered in the editor instead of the real one while
+	 * authoring) is kept only when its file exists; a bad path is dropped so the
+	 * editor falls back to the real template rather than erroring. Pure.
 	 */
 	public static function normalize(array $components): array
 	{
@@ -55,6 +59,8 @@ class Components
 				continue;
 			if (!isset($def['template']) or !is_string($def['template']) or !is_file($def['template']))
 				continue;
+			if (isset($def['placeholder_template']) and (!is_string($def['placeholder_template']) or !is_file($def['placeholder_template'])))
+				unset($def['placeholder_template']);
 			if (!isset($def['label']) or !is_string($def['label']) or $def['label'] === '')
 				$def['label'] = self::humanize($type);
 			$out[$type] = $def;
@@ -131,14 +137,19 @@ class Components
 		return $out;
 	}
 
-	/** type => absolute template path, for Renderer's per-type template override. */
-	public static function templateMap(array $components): array
+	/**
+	 * type => absolute template path, for Renderer's per-type template override.
+	 * With $preferPlaceholder (editor preview), a component's `placeholder_template`
+	 * wins over its real `template` where declared — so authoring shows a lighter /
+	 * neutral stand-in while the public side keeps rendering the real template.
+	 */
+	public static function templateMap(array $components, bool $preferPlaceholder = false): array
 	{
 		$components = self::normalize($components);
 
 		$out = [];
 		foreach ($components as $type => $def)
-			$out[$type] = $def['template'];
+			$out[$type] = ($preferPlaceholder and isset($def['placeholder_template'])) ? $def['placeholder_template'] : $def['template'];
 		return $out;
 	}
 

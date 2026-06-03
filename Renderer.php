@@ -37,6 +37,11 @@ class Renderer
 
 	private const BREAKPOINTS = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
 
+	// Units accepted by the `dimension` config widget. Mirror of _common.js
+	// DIMENSION_UNITS — both must list the same units so an unknown unit is
+	// rejected identically on each side (render parity).
+	private const DIMENSION_UNITS = ['px', '%', 'rem', 'em', 'vw', 'vh', 'auto'];
+
 	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null, ?array $templateMap = null)
 	{
 		$this->templatesPath = rtrim($templatesPath, "/\\");
@@ -200,6 +205,33 @@ class Renderer
 		return self::escapeHtml($s);
 	}
 
+	// Mirror of _common.js dimensionValue. Resolves a `dimension` config value to
+	// a CSS length token (`1200px`, `50%`, `auto`) or '' when absent/invalid.
+	// Reads { value, unit } | { unit: 'auto' } | a legacy bare number (-> px).
+	// Empty / value <= 0 / unknown unit -> '' (the field is then not emitted).
+	// The numeric value is cast through (float) so integers print without a
+	// trailing `.0`, matching the JS `${n}` formatting (render parity).
+	public static function dimensionValue($v): string
+	{
+		if ($v === null or $v === '')
+			return '';
+		if (is_array($v)) {
+			$unit = $v['unit'] ?? null;
+			if ($unit === 'auto')
+				return 'auto';
+			if (!in_array($unit, self::DIMENSION_UNITS, true))
+				return '';
+			$n = isset($v['value']) ? (float)$v['value'] : 0;
+			return $n > 0 ? (string)$n . $unit : '';
+		}
+		// Legacy: a plain number (or numeric string) is interpreted as px.
+		if (is_int($v) or is_float($v) or (is_string($v) and is_numeric($v))) {
+			$n = (float)$v;
+			return $n > 0 ? (string)$n . 'px' : '';
+		}
+		return '';
+	}
+
 	public static function spacingClasses($value, string $axis): string
 	{
 		if ($value === null)
@@ -322,6 +354,10 @@ class Renderer
 
 	public static function directionClasses(?string $direction): string
 	{
+		// `stack` is a marker class only; the overlay layout is driven by inline
+		// styles the container template emits (mirror of _common.js directionClasses).
+		if ($direction === 'stack')
+			return 'pb-stack';
 		return $direction === 'horizontal' ? 'd-flex flex-row' : 'd-flex flex-column';
 	}
 

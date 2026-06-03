@@ -66,6 +66,8 @@ class Config extends Module_Config
 				. " *         'supportsCommon' => true,                 // optional, default true\n"
 				. " *         'minWidth'      => 200,                    // optional layout hint\n"
 				. " *         'template'      => __DIR__ . '/components/pricing-card.php',  // required, must exist\n"
+				. " *         // optional editor-only stand-in rendered while authoring (LEAF components):\n"
+				. " *         'placeholder_template' => __DIR__ . '/components/pricing-card.placeholder.php',\n"
 				. " *     ],\n"
 				. " * ];\n"
 				. " */\n";
