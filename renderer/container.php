@@ -8,16 +8,19 @@ use Model\PageBuilder\Renderer;
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
-$padding = $config['padding'] ?? null;
-$paddingCls = 'p-3';
-if ($padding !== null) {
-	$cls = Renderer::spacingClasses($padding, 'p');
-	if ($cls !== '')
-		$paddingCls = $cls;
-	elseif (is_array($padding))
-		$paddingCls = 'p-0';
-}
+// Default is no padding (p-0): an absent/empty value falls back to p-0.
+$paddingCls = Renderer::spacingClasses($config['padding'] ?? null, 'p');
+if ($paddingCls === '')
+	$paddingCls = 'p-0';
 $directionCls = Renderer::directionClasses($config['direction'] ?? null);
+// Bootstrap flex alignment utilities (container-only; mirror of JS render).
+$alignParts = [];
+if (!empty($config['justifyContent']))
+	$alignParts[] = 'justify-content-' . $config['justifyContent'];
+if (!empty($config['alignItems']))
+	$alignParts[] = 'align-items-' . $config['alignItems'];
+$alignCls = implode(' ', $alignParts);
+$alignPart = $alignCls !== '' ? ' ' . $alignCls : '';
 
 // Inline style + container class. Field order mirrors the JS render() exactly
 // (render-parity invariant). Image URL is double-quoted on purpose: `"` encodes
@@ -53,6 +56,10 @@ elseif ($bgType === 'image' and ($bgBound or !empty($config['backgroundImage']))
 }
 if ($maxWidth !== '')
 	$styleParts[] = 'max-width:' . $maxWidth;
+// A concrete height, mirroring max-width: 'auto' (and empty/invalid) emits nothing.
+$height = Renderer::dimensionValue($config['height'] ?? null);
+if ($height !== '' and $height !== 'auto')
+	$styleParts[] = 'height:' . $height;
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
 $containerCls = $maxWidth !== '' ? ' container' : '';
@@ -63,10 +70,16 @@ $extra = $effectiveExtra !== '' ? ' ' . $effectiveExtra : '';
 // In stack mode each child is wrapped in a layer pinned to the grid cell so all
 // layers overlap (mirror of the JS container render).
 if ($isStack) {
+	// Each layer gets a concrete, DOM-order z-index + position:relative so it forms
+	// its OWN stacking context — otherwise a positioned descendant (e.g. a Bootstrap
+	// .carousel) paints above a later layer's static content (mirror of JS render).
 	$inner = '';
-	foreach ($children as $child)
-		$inner .= '<div class="pb-layer" style="grid-area:1/1">' . $child . '</div>';
+	$layerIndex = 0;
+	foreach ($children as $child) {
+		$inner .= '<div class="pb-layer" style="grid-area:1/1;position:relative;z-index:' . $layerIndex . '">' . $child . '</div>';
+		$layerIndex++;
+	}
 } else {
 	$inner = implode('', $children);
 }
-echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $extra . '"' . $styleAttr . '>' . $inner . '</div>';
+echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $alignPart . $extra . '"' . $styleAttr . '>' . $inner . '</div>';
