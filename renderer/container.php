@@ -21,6 +21,12 @@ if (!empty($config['alignItems']))
 	$alignParts[] = 'align-items-' . $config['alignItems'];
 $alignCls = implode(' ', $alignParts);
 $alignPart = $alignCls !== '' ? ' ' . $alignCls : '';
+// Bootstrap gap utility (0..5) for the space between children (flex or grid).
+// Default 0 emits nothing (gap-0 is Bootstrap's default); only 1..5 add a class
+// (mirror of JS render).
+$gapN = isset($config['gap']) ? (int) $config['gap'] : 0;
+$gapCls = ($gapN >= 1 and $gapN <= 5) ? 'gap-' . $gapN : '';
+$gapPart = $gapCls !== '' ? ' ' . $gapCls : '';
 
 // Inline style + container class. Field order mirrors the JS render() exactly
 // (render-parity invariant). Image URL is double-quoted on purpose: `"` encodes
@@ -82,4 +88,4 @@ if ($isStack) {
 } else {
 	$inner = implode('', $children);
 }
-echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $alignPart . $extra . '"' . $styleAttr . '>' . $inner . '</div>';
+echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $gapPart . $alignPart . $extra . '"' . $styleAttr . '>' . $inner . '</div>';
