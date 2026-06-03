@@ -47,7 +47,7 @@ let sampleDataPromise = null;
 
 function fetchSampleData() {
 	if (sampleDataPromise === null) {
-		sampleDataPromise = fetch(PATH + 'page-builder-sample-data', {
+		sampleDataPromise = fetch(PATH + 'page-builder/sample-data', {
 			credentials: 'include',
 		})
 			.then((res) => (res.ok ? res.json() : null))
@@ -74,6 +74,62 @@ function parseDataSources(textarea) {
 	return null;
 }
 
+function parseComponents(textarea) {
+	const raw = textarea.getAttribute('data-pb-components');
+	if (!raw)
+		return null;
+	try {
+		const list = JSON.parse(raw);
+		if (Array.isArray(list) && list.length)
+			return list;
+	} catch (e) {
+		console.warn('[page-builder] failed to parse data-pb-components', e);
+	}
+	return null;
+}
+
+// Register the host's custom components on the shared global registry (idempotent
+// across fields). None carry a JS render. A LEAF gets `serverRender:true` so the
+// editor fetches its preview HTML from the render-node route via onRenderComponent.
+// A CONTAINER (`acceptsChildren`) is registered as-is and rendered in-canvas by the
+// editor's default container render, keeping its children authorable (its real
+// wrapper is applied server-side by its PHP template).
+function registerCustomComponents(list) {
+	if (!list || typeof window.PageBuilder.registerComponent !== 'function')
+		return;
+	for (const def of list) {
+		if (!def || typeof def.type !== 'string')
+			continue;
+		if (window.PageBuilder.builtins && def.type in window.PageBuilder.builtins)
+			continue;
+		try {
+			const definition = def.acceptsChildren === true ? { ...def } : { ...def, serverRender: true };
+			window.PageBuilder.registerComponent(def.type, definition);
+		} catch (e) {
+			// Already registered by an earlier field on the page — that's fine.
+		}
+	}
+}
+
+// Render one node to preview HTML via the PHP renderer (the source of truth). The
+// editor calls this for every server-rendered component; results are cached editor-
+// side by content key, so this fires at most once per distinct config.
+async function renderComponentNode(node, opts) {
+	const res = await fetch(PATH + 'page-builder/render-node', {
+		method: 'POST',
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ node, lang: opts && opts.lang }),
+		signal: opts && opts.signal,
+	});
+	if (!res.ok)
+		throw new Error('render-node request failed');
+	const data = await res.json();
+	if (!data || typeof data.html !== 'string')
+		throw new Error('render-node returned no html');
+	return data.html;
+}
+
 async function uploadImage(file) {
 	const fd = new FormData();
 	fd.append('upload', file);
@@ -98,7 +154,7 @@ async function uploadImage(file) {
 	return data.url;
 }
 
-export async function checkPageBuilder() {
+async function checkPageBuilder() {
 	if (typeof window.PageBuilder !== 'function') {
 		console.warn('[page-builder] window.PageBuilder is not loaded yet');
 		return;
@@ -118,6 +174,11 @@ export async function checkPageBuilder() {
 
 		const languages = parseLanguages(textarea);
 		const value = parseDoc(textarea.value);
+
+		// Register host custom components before mounting (registry is global/shared).
+		const customComponents = parseComponents(textarea);
+		if (customComponents)
+			registerCustomComponents(customComponents);
 
 		// Merge editor-preview sample data into the configured descriptors (if any),
 		// so dynamic content previews with real values. Falls back to descriptors
@@ -146,6 +207,8 @@ export async function checkPageBuilder() {
 		};
 		if (dataSources)
 			options.dataSources = dataSources;
+		if (customComponents)
+			options.onRenderComponent = renderComponentNode;
 
 		const instance = new window.PageBuilder(wrapper, options);
 
@@ -156,13 +219,13 @@ export async function checkPageBuilder() {
 	}
 }
 
-export function getPageBuilderInstance(index = 0) {
+function getPageBuilderInstance(index = 0) {
 	if (typeof pbInstancesArr[index] === 'undefined')
 		return null;
 	return pbInstancesArr[index];
 }
 
-export function getPageBuilderValue() {
+function getPageBuilderValue() {
 	const attached = this.getAttribute('data-pb-attached');
 	if (attached === null || attached === 'attaching')
 		return this.value;
@@ -172,7 +235,7 @@ export function getPageBuilderValue() {
 	return JSON.stringify(pbInstancesArr[index].getValue());
 }
 
-export function setPageBuilderValue(v) {
+function setPageBuilderValue(v) {
 	const attached = this.getAttribute('data-pb-attached');
 	if (attached === null || attached === 'attaching') {
 		this.value = typeof v === 'string' ? v : JSON.stringify(v);
@@ -185,6 +248,15 @@ export function setPageBuilderValue(v) {
 	pbInstancesArr[index].setValue(doc);
 	return true;
 }
+
+// Loaded as a classic <script> via the assets pipeline (no ES module / type=
+// "module"), so expose the form-glue functions on window. ModEl's form save wires
+// getPageBuilderValue/setPageBuilderValue by name via data-getvalue-function/
+// data-setvalue-function (this = the textarea at call time).
+window.checkPageBuilder = checkPageBuilder;
+window.getPageBuilderValue = getPageBuilderValue;
+window.setPageBuilderValue = setPageBuilderValue;
+window.getPageBuilderInstance = getPageBuilderInstance;
 
 window.addEventListener('load', function () {
 	onHtmlChange(checkPageBuilder);

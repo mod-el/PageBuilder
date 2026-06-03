@@ -11,6 +11,7 @@
 	"assets-position": "foot",
 	"requires": [
 		"model/assets",
-		"model/images"
+		"model/images",
+		"model/providers-finder"
 	]
 }

@@ -12,6 +12,7 @@ class Config extends Module_Config
 				'upload-path' => 'app-data/img/page-builder/',
 				'sample-data-limit' => 4,
 				'sources' => [],
+				'components' => [],
 			], true);
 
 			// Closures can't be var_export'd, so the `sources` shape is documented as
@@ -34,6 +35,37 @@ class Config extends Module_Config
 				. " *         'fields'    => [  // required for a retriever source\n"
 				. " *             ['key' => 'name', 'label' => 'Nome', 'type' => 'text'],\n"
 				. " *         ],\n"
+				. " *     ],\n"
+				. " * ];\n"
+				. " */\n"
+				. "\n/*\n"
+				. " * Custom components. Each key is the component `type` (kebab-case). The\n"
+				. " * PHP `template` is the single source of truth for public rendering, and\n"
+				. " * the config form is auto-generated from `configSchema`. Packages can also\n"
+				. " * contribute components automatically via an AbstractPageBuilderProvider\n"
+				. " * (same shape as below) — host config here overrides a provider's type.\n"
+				. " *\n"
+				. " * A component is either a LEAF (no children, server-rendered: the editor\n"
+				. " * fetches its preview HTML) or a CONTAINER ('acceptsChildren', usually with\n"
+				. " * 'iterates') that reuses the common `binding` + iteration to render its\n"
+				. " * authored children once per bound item — like the built-in repeater,\n"
+				. " * wrapped server-side by its template (see the slider package). `configSchema`\n"
+				. " * must be serializable — `options` must be arrays and `when` predicates are\n"
+				. " * unsupported (stripped before reaching the editor).\n"
+				. " *\n"
+				. " * \$config['components'] = [\n"
+				. " *     'pricing-card' => [\n"
+				. " *         'label'        => 'Scheda prezzo',     // palette name\n"
+				. " *         'category'     => 'Avanzato',           // optional grouping\n"
+				. " *         'icon'         => 'fa fa-tag',          // optional\n"
+				. " *         'configSchema' => [                      // auto-rendered config form\n"
+				. " *             ['key' => 'title', 'type' => 'text',   'label' => 'Titolo', 'multilang' => true],\n"
+				. " *             ['key' => 'price', 'type' => 'number', 'label' => 'Prezzo'],\n"
+				. " *         ],\n"
+				. " *         'defaultConfig' => ['price' => 0],       // optional\n"
+				. " *         'supportsCommon' => true,                 // optional, default true\n"
+				. " *         'minWidth'      => 200,                    // optional layout hint\n"
+				. " *         'template'      => __DIR__ . '/components/pricing-card.php',  // required, must exist\n"
 				. " *     ],\n"
 				. " * ];\n"
 				. " */\n";

@@ -20,11 +20,17 @@ class PageBuilder extends Field
 
 		// Dynamic-data authoring: expose the configured data sources to the editor
 		// as `dataSources` descriptors (fields only — init.js fetches sample data
-		// from the page-builder-sample-data route and merges it). Absent/empty config → no
+		// from the page-builder/sample-data route and merges it). Absent/empty config → no
 		// attribute, so the editor mounts exactly as before.
 		$descriptors = $this->dataSourceDescriptors();
 		if (!empty($descriptors))
 			$attributes['data-pb-datasources'] = json_encode($descriptors);
+
+		// Custom server-rendered components: serialize their editor descriptors so
+		// init.js can register them before mounting. Absent/empty → no attribute.
+		$components = $this->componentDescriptors();
+		if (!empty($components))
+			$attributes['data-pb-components'] = json_encode($components);
 
 		$this->options['type'] = 'textarea';
 		parent::renderWithLang($attributes, $lang);
@@ -49,6 +55,10 @@ class PageBuilder extends Field
 		if (!empty($descriptors))
 			$response['attributes']['data-pb-datasources'] = json_encode($descriptors);
 
+		$components = $this->componentDescriptors();
+		if (!empty($components))
+			$response['attributes']['data-pb-components'] = json_encode($components);
+
 		return $response;
 	}
 
@@ -63,6 +73,17 @@ class PageBuilder extends Field
 				return [];
 			$helper = new \Model\PageBuilder\Sources($this->model);
 			return $helper->descriptors($sources);
+		} catch (\Throwable $e) {
+			return [];
+		}
+	}
+
+	private function componentDescriptors(): array
+	{
+		try {
+			if (!$this->model->isLoaded('PageBuilder'))
+				$this->model->load('PageBuilder');
+			return $this->model->_PageBuilder->componentDescriptors();
 		} catch (\Throwable $e) {
 			return [];
 		}

@@ -21,6 +21,10 @@ class Renderer
 	private string $defaultLang;
 	private array $registry;
 	private ?DataProvider $data;
+	// Per-type template overrides (type => absolute file path), checked before the
+	// default templatesPath. Lets a host register custom components whose templates
+	// live outside the built-in directory (see CLAUDE.md "custom components").
+	private array $templateMap;
 
 	private const SIDE_PREFIX = [
 		'top'    => 't',
@@ -33,12 +37,13 @@ class Renderer
 
 	private const BREAKPOINTS = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
 
-	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null)
+	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null, ?array $templateMap = null)
 	{
 		$this->templatesPath = rtrim($templatesPath, "/\\");
 		$this->defaultLang = $defaultLang;
 		$this->registry = $registry ?? require __DIR__ . '/registry.php';
 		$this->data = $data;
+		$this->templateMap = $templateMap ?? [];
 	}
 
 	// Resolve a binding to a list via the active provider. No provider → empty
@@ -132,7 +137,7 @@ class Renderer
 
 	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null): string
 	{
-		$path = $this->templatesPath . '/' . $type . '.php';
+		$path = $this->templateMap[$type] ?? ($this->templatesPath . '/' . $type . '.php');
 		if (!file_exists($path))
 			throw new RuntimeException("template not found for type \"$type\" at $path");
 

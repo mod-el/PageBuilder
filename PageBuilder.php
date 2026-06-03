@@ -4,6 +4,7 @@ use Model\Core\Module;
 use Model\PageBuilder\Renderer;
 use Model\PageBuilder\ModelDataProvider;
 use Model\PageBuilder\Sources;
+use Model\PageBuilder\Components;
 
 /**
  * Page-builder ModEl bridge module.
@@ -42,9 +43,57 @@ class PageBuilder extends Module
 
 	public function getRenderer(): Renderer
 	{
-		if ($this->renderer === null)
-			$this->renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), null, $this->buildProvider());
+		if ($this->renderer === null) {
+			$components = $this->components();
+			// No custom components → null registry/templateMap, so the Renderer loads
+			// the built-in registry.php and behaves exactly as before.
+			$registry = null;
+			$templateMap = null;
+			if (!empty($components)) {
+				$registry = array_merge(require __DIR__ . '/registry.php', Components::registryMeta($components));
+				$templateMap = Components::templateMap($components);
+			}
+			$this->renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), $registry, $this->buildProvider(), $templateMap);
+		}
 		return $this->renderer;
+	}
+
+	// Custom components from two sources, merged: packages that ship an
+	// AbstractPageBuilderProvider (discovered via providers-finder) and the host's
+	// global `components` config. The host config wins on a key collision, so a
+	// host can override or disable a provider-supplied type by redeclaring it.
+	// Empty when neither source contributes anything.
+	private function components(): array
+	{
+		$config = $this->retrieveConfig();
+		$configComponents = (isset($config['components']) and is_array($config['components'])) ? $config['components'] : [];
+
+		$providerComponents = [];
+		// providers-finder is a framework dep; guard + swallow so a broken or absent
+		// provider never breaks the editor (graceful degradation, like Sources).
+		if (class_exists('\\Model\\ProvidersFinder\\Providers')) {
+			try {
+				foreach (\Model\ProvidersFinder\Providers::find('PageBuilderProvider') as $p) {
+					$fromProvider = $p['provider']::components();
+					if (is_array($fromProvider))
+						$providerComponents = array_merge($providerComponents, $fromProvider);
+				}
+			} catch (\Throwable $e) {
+				// best-effort discovery
+			}
+		}
+
+		return array_merge($providerComponents, $configComponents);
+	}
+
+	/**
+	 * Editor descriptors for the host's custom components (serializable subset of
+	 * each definition; init.js registers them with `serverRender:true`). Empty when
+	 * none configured, so the editor mounts exactly as before.
+	 */
+	public function componentDescriptors(): array
+	{
+		return Components::descriptors($this->components());
 	}
 
 	/**
@@ -75,7 +124,8 @@ class PageBuilder extends Module
 	/**
 	 * Editor-preview sample data, keyed by source: `{ "<key>": [ …items… ] }`.
 	 * Built from the global `sources` config (see docs/dynamic-data.md §4.1 / §6)
-	 * and served to the editor field by PageBuilderSampleDataController. Sample
+	 * and served to the editor field by PageBuilderController (page-builder/
+	 * sample-data). Sample
 	 * data is preview-only — never stored in the document nor seen by the public
 	 * renderer. Only configured sources are exposed, so it can't dump arbitrary
 	 * data. Empty when no sources are configured.
@@ -101,26 +151,5 @@ class PageBuilder extends Module
 				return array_values($langs);
 		}
 		return ['it'];
-	}
-
-	public function headings(): void
-	{
-		?>
-		<link rel="stylesheet" href="<?= PATH ?>model/PageBuilder/files/page-builder.min.css">
-		<script src="<?= PATH ?>model/PageBuilder/files/page-builder.min.js"></script>
-		<script type="module">
-			import {
-				checkPageBuilder,
-				getPageBuilderValue,
-				setPageBuilderValue,
-				getPageBuilderInstance
-			} from "<?= PATH ?>model/PageBuilder/files/init.js";
-
-			window.checkPageBuilder = checkPageBuilder;
-			window.getPageBuilderValue = getPageBuilderValue;
-			window.setPageBuilderValue = setPageBuilderValue;
-			window.getPageBuilderInstance = getPageBuilderInstance;
-		</script>
-		<?php
 	}
 }
