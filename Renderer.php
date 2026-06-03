@@ -100,6 +100,13 @@ class Renderer
 
 		$meta = $this->registry[$type];
 		$rawConfig = (isset($node['config']) && is_array($node['config'])) ? $node['config'] : [];
+
+		// Common `visible` (default true): an explicit false renders the node as
+		// nothing (mirror of the JS preview walk; the editor still shows it dimmed
+		// for re-selection). No edit mode here, so it is simply omitted.
+		if (array_key_exists('visible', $rawConfig) and $rawConfig['visible'] === false)
+			return '';
+
 		$supportsCommon = ($meta['supportsCommon'] ?? true) !== false;
 
 		// Resolve a common binding to a list (no provider → empty). childItems is
