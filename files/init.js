@@ -94,17 +94,28 @@ function parseComponents(textarea) {
 // A CONTAINER (`acceptsChildren`) is registered as-is and rendered in-canvas by the
 // editor's default container render, keeping its children authorable (its real
 // wrapper is applied server-side by its PHP template).
+//
+// A descriptor whose type collides with a builtin is normally skipped (protects the
+// core builtins). The one exception: a builtin that opts in with `overridable:true`
+// (the native `slider`) IS replaced — that's how the model/slider package's `slider`
+// supersedes the native Bootstrap carousel in the editor, mirroring the PHP side.
 function registerCustomComponents(list) {
 	if (!list || typeof window.PageBuilder.registerComponent !== 'function')
 		return;
+	const builtins = window.PageBuilder.builtins || {};
 	for (const def of list) {
 		if (!def || typeof def.type !== 'string')
 			continue;
-		if (window.PageBuilder.builtins && def.type in window.PageBuilder.builtins)
+		const builtinDef = builtins[def.type];
+		const overridable = builtinDef && builtinDef.overridable === true;
+		if (builtinDef && !overridable)
 			continue;
 		try {
 			const definition = def.acceptsChildren === true ? { ...def } : { ...def, serverRender: true };
-			window.PageBuilder.registerComponent(def.type, definition);
+			if (overridable && typeof window.PageBuilder.overrideComponent === 'function')
+				window.PageBuilder.overrideComponent(def.type, definition);
+			else
+				window.PageBuilder.registerComponent(def.type, definition);
 		} catch (e) {
 			// Already registered by an earlier field on the page — that's fine.
 		}

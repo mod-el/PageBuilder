@@ -19,4 +19,5 @@ return [
 	'button'    => ['multilang' => ['label'],   'supportsCommon' => true],
 	'raw-html'  => ['multilang' => [],          'supportsCommon' => true],
 	'repeat'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
+	'slider'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
 ];

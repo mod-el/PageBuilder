@@ -137,10 +137,13 @@ class Renderer
 		$config = $this->resolveMultilang($rawConfig, $meta['multilang'] ?? [], $lang);
 		$extraClasses = $supportsCommon ? self::computeExtraClasses($rawConfig) : '';
 
-		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems);
+		// Node id exposed to the template as $nodeId (mirror of JS ctx.nodeId); used
+		// to build a unique DOM id, e.g. the slider's Bootstrap carousel target.
+		$nodeId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
+		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId);
 	}
 
-	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null): string
+	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null, string $nodeId = ''): string
 	{
 		$path = $this->templateMap[$type] ?? ($this->templatesPath . '/' . $type . '.php');
 		if (!file_exists($path))
@@ -153,13 +156,13 @@ class Renderer
 		$resolveField = static function (string $field) use ($renderer, $scope, $lang) {
 			return $renderer->resolveField($field, $scope, $lang);
 		};
-		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField): void {
+		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField, string $nodeId): void {
 			include $__path;
 		};
 
 		ob_start();
 		try {
-			$run($path, $config, $children, $extraClasses, $lang, $scope, $items, $renderer, $resolveField);
+			$run($path, $config, $children, $extraClasses, $lang, $scope, $items, $renderer, $resolveField, $nodeId);
 		} catch (\Throwable $e) {
 			ob_end_clean();
 			throw $e;
