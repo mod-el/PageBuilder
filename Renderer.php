@@ -14,6 +14,7 @@ use RuntimeException;
  *   $html     = $renderer->render($doc, ['lang' => 'en']);
  */
 require_once __DIR__ . '/DataProvider.php';
+require_once __DIR__ . '/FragmentProvider.php';
 
 class Renderer
 {
@@ -21,6 +22,7 @@ class Renderer
 	private string $defaultLang;
 	private array $registry;
 	private ?DataProvider $data;
+	private ?FragmentProvider $fragments;
 	// Per-type template overrides (type => absolute file path), checked before the
 	// default templatesPath. Lets a host register custom components whose templates
 	// live outside the built-in directory (see CLAUDE.md "custom components").
@@ -42,13 +44,14 @@ class Renderer
 	// rejected identically on each side (render parity).
 	private const DIMENSION_UNITS = ['px', '%', 'rem', 'em', 'vw', 'vh', 'auto'];
 
-	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null, ?array $templateMap = null)
+	public function __construct(string $templatesPath, string $defaultLang = 'it', ?array $registry = null, ?DataProvider $data = null, ?array $templateMap = null, ?FragmentProvider $fragments = null)
 	{
 		$this->templatesPath = rtrim($templatesPath, "/\\");
 		$this->defaultLang = $defaultLang;
 		$this->registry = $registry ?? require __DIR__ . '/registry.php';
 		$this->data = $data;
 		$this->templateMap = $templateMap ?? [];
+		$this->fragments = $fragments;
 	}
 
 	// Resolve a binding to a list via the active provider. No provider → empty
@@ -78,6 +81,18 @@ class Renderer
 		return $this->data->resolveItem($source, $id, $lang);
 	}
 
+	public function resolveFragment(string $id): ?array
+	{
+		if ($this->fragments === null)
+			return null;
+		$doc = $this->fragments->get($id);
+		if (!is_array($doc))
+			return null;
+		if (isset($doc['root']) and is_array($doc['root']))
+			return $doc['root'];
+		return $doc;
+	}
+
 	public function render(array $doc, array $opts = []): string
 	{
 		if (!array_key_exists('version', $doc) or $doc['version'] !== 1)
@@ -101,7 +116,7 @@ class Renderer
 	// item), any other bound node exposes the list to its subtree as $items, and
 	// an unbound node inherits the nearest ancestor's list. Mirror of the JS
 	// renderNode walk (src/core/editor.js) — preview output stays byte-identical.
-	private function renderNode(array $node, string $lang, $scope = null, ?array $items = null): string
+	private function renderNode(array $node, string $lang, $scope = null, ?array $items = null, array $fragmentStack = [], string $nodeIdPrefix = ''): string
 	{
 		$type = (isset($node['type']) && is_string($node['type'])) ? $node['type'] : '';
 		if (!isset($this->registry[$type]))
@@ -142,20 +157,34 @@ class Renderer
 
 		$kids = (isset($node['children']) and is_array($node['children'])) ? $node['children'] : [];
 		$children = [];
-		if (($meta['iterates'] ?? false) === true) {
+		if ($type === 'fragment') {
+			$ref = (isset($rawConfig['ref']) and is_string($rawConfig['ref'])) ? $rawConfig['ref'] : '';
+			if ($ref === '' or in_array($ref, $fragmentStack, true))
+				return '<!-- pb: fragment unknown "' . self::escapeHtml($ref) . '" -->';
+			$root = $this->resolveFragment($ref);
+			if ($root === null)
+				return '<!-- pb: fragment unknown "' . self::escapeHtml($ref) . '" -->';
+			$nextStack = $fragmentStack;
+			$nextStack[] = $ref;
+			$nextPrefix = $nodeIdPrefix . ((isset($node['id']) and is_string($node['id'])) ? $node['id'] : '') . '-';
+			foreach ($root as $child) {
+				if (is_array($child))
+					$children[] = $this->renderNode($child, $lang, $scope, $childItems, $nextStack, $nextPrefix);
+			}
+		} elseif (($meta['iterates'] ?? false) === true) {
 			$list = $boundList !== null ? $boundList : ($items ?? []);
 			foreach ($list as $item) {
 				$buf = '';
 				foreach ($kids as $child) {
 					if (is_array($child))
-						$buf .= $this->renderNode($child, $lang, $item, $list);
+						$buf .= $this->renderNode($child, $lang, $item, $list, $fragmentStack, $nodeIdPrefix);
 				}
 				$children[] = $buf;
 			}
 		} else {
 			foreach ($kids as $child) {
 				if (is_array($child))
-					$children[] = $this->renderNode($child, $lang, $scope, $childItems);
+					$children[] = $this->renderNode($child, $lang, $scope, $childItems, $fragmentStack, $nodeIdPrefix);
 			}
 		}
 
@@ -164,7 +193,7 @@ class Renderer
 
 		// Node id exposed to the template as $nodeId (mirror of JS ctx.nodeId); used
 		// to build a unique DOM id, e.g. the slider's Bootstrap carousel target.
-		$nodeId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
+		$nodeId = $nodeIdPrefix . ((isset($node['id']) and is_string($node['id'])) ? $node['id'] : '');
 		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId);
 	}
 

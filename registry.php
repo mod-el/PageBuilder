@@ -20,4 +20,5 @@ return [
 	'raw-html'  => ['multilang' => [],          'supportsCommon' => true],
 	'repeat'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
 	'slider'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
+	'fragment'  => ['multilang' => [],          'supportsCommon' => true],
 ];

@@ -3,6 +3,8 @@
 use Model\Core\Module;
 use Model\PageBuilder\Renderer;
 use Model\PageBuilder\ModelDataProvider;
+use Model\PageBuilder\ModelFragmentProvider;
+use Model\PageBuilder\Fragments;
 use Model\PageBuilder\Sources;
 use Model\PageBuilder\Components;
 
@@ -62,7 +64,7 @@ class PageBuilder extends Module
 			// Editor preview prefers placeholder_template where a component declares one.
 			$templateMap = Components::templateMap($components, $forEditor);
 		}
-		$renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), $registry, $this->buildProvider(), $templateMap);
+		$renderer = new Renderer(__DIR__ . '/renderer', $this->currentLang(), $registry, $this->buildProvider(), $templateMap, $this->buildFragmentProvider());
 
 		if ($forEditor)
 			$this->editorRenderer = $renderer;
@@ -124,6 +126,18 @@ class PageBuilder extends Module
 		return new ModelDataProvider($sources, $this->model, $this->currentLang());
 	}
 
+	private function buildFragmentProvider(): ModelFragmentProvider
+	{
+		return new ModelFragmentProvider($this->model, $this->fragmentElement());
+	}
+
+	private function fragmentElement(): string
+	{
+		$config = $this->retrieveConfig();
+		$element = $config['fragments-element'] ?? 'PageBuilderFragment';
+		return (is_string($element) and $element !== '') ? $element : 'PageBuilderFragment';
+	}
+
 	private function currentLang(): string
 	{
 		if (class_exists('\\Model\\Multilang\\Ml')) {
@@ -174,6 +188,26 @@ class PageBuilder extends Module
 			return [];
 		$helper = new Sources($this->model);
 		return $helper->resolveItems($sources, $source, $ids, $this->languages());
+	}
+
+	public function fragments(): array
+	{
+		$helper = new Fragments($this->model, $this->fragmentElement());
+		return $helper->list();
+	}
+
+	public function saveFragment(string $name, string $category, array $doc): ?string
+	{
+		if (!isset($doc['version']) or $doc['version'] !== 1 or !isset($doc['root']) or !is_array($doc['root']))
+			return null;
+		$helper = new Fragments($this->model, $this->fragmentElement());
+		return $helper->save($name, $category, $doc);
+	}
+
+	public function deleteFragment(string $id): bool
+	{
+		$helper = new Fragments($this->model, $this->fragmentElement());
+		return $helper->delete($id);
 	}
 
 	private function languages(): array

@@ -11,6 +11,7 @@ class Config extends Module_Config
 				'include-host-in-uploads' => false,
 				'upload-path' => 'app-data/img/page-builder/',
 				'sample-data-limit' => 4,
+				'fragments-element' => 'PageBuilderFragment',
 				'sources' => [],
 				'components' => [],
 			], true);
@@ -39,6 +40,13 @@ class Config extends Module_Config
 				. " *         ],\n"
 				. " *     ],\n"
 				. " * ];\n"
+				. " */\n"
+				. "\n/*\n"
+				. " * Fragments. The editor stores linked reusable subtrees in the ORM\n"
+				. " * element named by \$config['fragments-element'] (default:\n"
+				. " * PageBuilderFragment). The element/table is expected to expose id,\n"
+				. " * name, category and doc fields, where doc is a full page-builder JSON\n"
+				. " * document ({version:1, root:[...]}).\n"
 				. " */\n"
 				. "\n/*\n"
 				. " * Custom components. Each key is the component `type` (kebab-case). The\n"

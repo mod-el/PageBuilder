@@ -44,6 +44,7 @@ function parseLanguages(textarea) {
 // Sources are declared once globally (PageBuilder module config), so the sample
 // data is the same for every field on the page — fetch it at most once.
 let sampleDataPromise = null;
+let fragmentsPromise = null;
 
 function fetchSampleData() {
 	if (sampleDataPromise === null) {
@@ -58,6 +59,21 @@ function fetchSampleData() {
 			});
 	}
 	return sampleDataPromise;
+}
+
+function fetchFragments() {
+	if (fragmentsPromise === null) {
+		fragmentsPromise = fetch(PATH + 'page-builder/fragments', {
+			credentials: 'include',
+		})
+			.then((res) => (res.ok ? res.json() : null))
+			.then((data) => (data && Array.isArray(data.fragments) ? data.fragments : []))
+			.catch((e) => {
+				console.warn('[page-builder] failed to fetch fragments', e);
+				return [];
+			});
+	}
+	return fragmentsPromise;
 }
 
 function parseDataSources(textarea) {
@@ -197,6 +213,33 @@ async function resolveItems(source, ids) {
 	return data && Array.isArray(data.items) ? data.items : [];
 }
 
+async function saveFragment(payload) {
+	const res = await fetch(PATH + 'page-builder/fragments', {
+		method: 'POST',
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+	if (!res.ok)
+		throw new Error('fragment save failed');
+	const data = await res.json();
+	if (!data || typeof data.id !== 'string')
+		throw new Error('fragment save returned no id');
+	fragmentsPromise = null;
+	return { id: data.id };
+}
+
+async function deleteFragment(id) {
+	const params = new URLSearchParams({ id });
+	const res = await fetch(PATH + 'page-builder/fragments?' + params.toString(), {
+		method: 'DELETE',
+		credentials: 'include',
+	});
+	if (!res.ok)
+		throw new Error('fragment delete failed');
+	fragmentsPromise = null;
+}
+
 async function checkPageBuilder() {
 	if (typeof window.PageBuilder !== 'function') {
 		console.warn('[page-builder] window.PageBuilder is not loaded yet');
@@ -238,6 +281,12 @@ async function checkPageBuilder() {
 			}
 		}
 
+		let fragments = [];
+		try {
+			fragments = await fetchFragments();
+		} catch (e) {
+		}
+
 		const options = {
 			value,
 			languages,
@@ -249,6 +298,9 @@ async function checkPageBuilder() {
 			onUploadImage: uploadImage,
 			onSearchSource: searchSource,
 			onResolveItems: resolveItems,
+			fragments,
+			onSaveFragment: saveFragment,
+			onDeleteFragment: deleteFragment,
 		};
 		if (dataSources)
 			options.dataSources = dataSources;

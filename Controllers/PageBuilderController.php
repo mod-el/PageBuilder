@@ -11,6 +11,9 @@ use Model\Core\Controller;
  *   GET  page-builder/sample-data  → { "sources": { "<key>": [ …sample items… ] } }
  *   GET  page-builder/search?source=…&q=… → { "items": [ … ] }
  *   GET  page-builder/resolve-items?source=…&ids=… → { "items": [ … ] }
+ *   GET  page-builder/fragments → { "fragments": [ … ] }
+ *   POST page-builder/fragments → { "id": "…" }       (body: { name, category, doc })
+ *   DELETE page-builder/fragments?id=… → { "ok": true }
  *   POST page-builder/render-node  → { "html": "…" }   (body: { node, lang })
  *
  * Both rely on the admin-path auth posture (same as files/upload.php) — no
@@ -43,6 +46,8 @@ class PageBuilderController extends Controller
 					else
 						$ids = [];
 					return ['items' => $this->model->_PageBuilder->resolveItems($source, $ids)];
+				case 'fragments':
+					return ['fragments' => $this->model->_PageBuilder->fragments()];
 			}
 			return $this->notFound();
 		} catch (\Throwable $e) {
@@ -58,10 +63,26 @@ class PageBuilderController extends Controller
 	// so a component's optional `placeholder_template` stands in for its real one.
 	public function post()
 	{
-		if ($this->model->getRequest(1) !== 'render-node')
-			return $this->notFound();
-
 		try {
+			if ($this->model->getRequest(1) === 'fragments') {
+				$raw = file_get_contents('php://input');
+				$payload = is_string($raw) ? json_decode($raw, true) : null;
+				if (!is_array($payload))
+					throw new \Exception('invalid payload: expected { name, category, doc }');
+				$name = isset($payload['name']) ? trim((string)$payload['name']) : '';
+				$category = isset($payload['category']) ? trim((string)$payload['category']) : '';
+				$doc = (isset($payload['doc']) and is_array($payload['doc'])) ? $payload['doc'] : null;
+				if ($name === '' or $doc === null)
+					throw new \Exception('invalid payload: name and doc are required');
+				$id = $this->model->_PageBuilder->saveFragment($name, $category, $doc);
+				if ($id === null)
+					throw new \Exception('fragment save failed');
+				return ['id' => $id];
+			}
+
+			if ($this->model->getRequest(1) !== 'render-node')
+				return $this->notFound();
+
 			$raw = file_get_contents('php://input');
 			$payload = is_string($raw) ? json_decode($raw, true) : null;
 			if (!is_array($payload) or !isset($payload['node']) or !is_array($payload['node']))
@@ -71,6 +92,24 @@ class PageBuilderController extends Controller
 			$doc = ['version' => 1, 'root' => [$payload['node']]];
 
 			return ['html' => $this->model->_PageBuilder->render($doc, $lang, true)];
+		} catch (\Throwable $e) {
+			http_response_code(500);
+			return ['error' => ['message' => $e->getMessage()]];
+		}
+	}
+
+	public function delete()
+	{
+		if ($this->model->getRequest(1) !== 'fragments')
+			return $this->notFound();
+
+		try {
+			$id = isset($_GET['id']) ? (string)$_GET['id'] : '';
+			if ($id === '')
+				throw new \Exception('missing fragment id');
+			if (!$this->model->_PageBuilder->deleteFragment($id))
+				throw new \Exception('fragment delete failed');
+			return ['ok' => true];
 		} catch (\Throwable $e) {
 			http_response_code(500);
 			return ['error' => ['message' => $e->getMessage()]];
