@@ -9,6 +9,8 @@ use Model\Core\Controller;
  * the route itself):
  *
  *   GET  page-builder/sample-data  → { "sources": { "<key>": [ …sample items… ] } }
+ *   GET  page-builder/search?source=…&q=… → { "items": [ … ] }
+ *   GET  page-builder/resolve-items?source=…&ids=… → { "items": [ … ] }
  *   POST page-builder/render-node  → { "html": "…" }   (body: { node, lang })
  *
  * Both rely on the admin-path auth posture (same as files/upload.php) — no
@@ -22,11 +24,27 @@ class PageBuilderController extends Controller
 	// public renderer.
 	public function get()
 	{
-		if ($this->model->getRequest(1) !== 'sample-data')
-			return $this->notFound();
-
 		try {
-			return ['sources' => $this->model->_PageBuilder->sampleData()];
+			switch ($this->model->getRequest(1)) {
+				case 'sample-data':
+					return ['sources' => $this->model->_PageBuilder->sampleData()];
+				case 'search':
+					$source = isset($_GET['source']) ? (string)$_GET['source'] : '';
+					$q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
+					$limit = (isset($_GET['limit']) and is_numeric($_GET['limit'])) ? (int)$_GET['limit'] : 10;
+					return ['items' => $this->model->_PageBuilder->searchItems($source, $q, $limit)];
+				case 'resolve-items':
+					$source = isset($_GET['source']) ? (string)$_GET['source'] : '';
+					$idsRaw = $_GET['ids'] ?? [];
+					if (is_string($idsRaw))
+						$ids = array_values(array_filter(array_map('trim', explode(',', $idsRaw)), static fn($id) => $id !== ''));
+					elseif (is_array($idsRaw))
+						$ids = array_values(array_filter($idsRaw, static fn($id) => is_string($id) or is_numeric($id)));
+					else
+						$ids = [];
+					return ['items' => $this->model->_PageBuilder->resolveItems($source, $ids)];
+			}
+			return $this->notFound();
 		} catch (\Throwable $e) {
 			http_response_code(500);
 			return ['error' => ['message' => $e->getMessage()]];

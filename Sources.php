@@ -7,19 +7,24 @@ use Model\Core\Core;
  * into the two things the editor needs:
  *
  *   - descriptors()  the `dataSources` array passed to the JS editor: per source,
- *                    a list of offerable fields (key/label/type[/source]). Fields
- *                    may be declared explicitly or auto-introspected from the ORM
- *                    element's metadata.
+ *                    a list of offerable fields (key/label/type[/source]) plus
+ *                    optional item-picker metadata (`searchable`, `labelField`).
+ *                    Fields may be declared explicitly or auto-introspected from
+ *                    the ORM element's metadata.
  *   - sample()       editor-preview-only sample data: a few real items per source,
- *                    with multilang fields shaped as {lang: value} maps and one
- *                    level of relations expanded (so nested collections preview).
+ *                    with `id`, multilang fields shaped as {lang: value} maps and
+ *                    one level of relations expanded (so nested collections
+ *                    preview).
+ *   - search() / resolveItems()
+ *                    host-fed item picker endpoints for searchable sources and
+ *                    saved-document hydration.
  *
  * Both read the SAME `sources` map; see docs/dynamic-data.md §4.1 / §6. Sample is
  * never serialized into the document and never seen by the public renderer.
  *
  * Source config shape (keyed by an arbitrary source key referenced by bindings):
- *   'hotels' => ['element' => 'TravioService', 'where' => […], 'joins' => […], 'fields' => […]]
- *   'custom' => ['retriever' => fn() => […list…], 'fields' => […]]  // fields required
+ *   'hotels' => ['element' => 'TravioService', 'where' => […], 'joins' => […], 'fields' => […], 'searchable' => true, 'labelField' => ['name']]
+ *   'custom' => ['retriever' => fn(array $filters, ?int $limit) => […list…], 'fields' => […]]  // fields required; filters include `q` for search and `id` for resolveItem
  *
  * Field descriptor shape (editor contract): {key, label, type, source?} where
  * type ∈ {text, number, image, relation}; a relation carries the target source key.
@@ -58,6 +63,8 @@ class Sources
 
 			$src['where'] = (isset($src['where']) and is_array($src['where'])) ? $src['where'] : [];
 			$src['joins'] = (isset($src['joins']) and is_array($src['joins'])) ? $src['joins'] : [];
+			$src['searchable'] = !empty($src['searchable']);
+			$src['labelField'] = self::normalizeLabelField($src['labelField'] ?? null);
 			if (!isset($src['label']) or !is_string($src['label']))
 				$src['label'] = ucfirst($key);
 
@@ -88,11 +95,16 @@ class Sources
 				? self::normalizeFields($src['fields'])
 				: $this->introspectFields($src['element'] ?? '', $elementToKey);
 
-			$out[] = [
+			$entry = [
 				'key' => $key,
 				'label' => $src['label'],
 				'fields' => $fields,
 			];
+			if (!empty($src['searchable']))
+				$entry['searchable'] = true;
+			if (!empty($src['labelField']))
+				$entry['labelField'] = count($src['labelField']) === 1 ? $src['labelField'][0] : $src['labelField'];
+			$out[] = $entry;
 		}
 		return $out;
 	}
@@ -127,11 +139,86 @@ class Sources
 		return $out;
 	}
 
+	public function search(array $sources, string $source, string $q, array $langs, int $limit = 10): array
+	{
+		$sources = self::normalize($sources);
+		if (!isset($sources[$source]))
+			return [];
+		if (empty($langs))
+			$langs = ['it'];
+
+		$limit = max(1, min(50, $limit));
+		$descriptors = $this->descriptors($sources);
+		$descByKey = [];
+		foreach ($descriptors as $d)
+			$descByKey[$d['key']] = $d['fields'];
+
+		$provider = new ModelDataProvider($sources, $this->model);
+		$src = $sources[$source];
+		$items = [];
+		if (isset($src['retriever']) and is_callable($src['retriever'])) {
+			try {
+				$items = $this->toList($src['retriever'](['q' => $q], $limit));
+			} catch (\Throwable $e) {
+				$items = [];
+			}
+		} else {
+			// Generic fallback: fetch a bounded candidate set and filter labels in PHP.
+			// Hosts with large sources should provide a retriever/searchable config
+			// tuned to their data model.
+			$items = $provider->query(['source' => $source], ['limit' => max($limit * 5, $limit)], null, $langs[0]);
+		}
+
+		$out = [];
+		foreach ($items as $item) {
+			$row = $this->shapeItem($item, $descByKey[$source] ?? [], $langs, $provider, $descByKey, 0);
+			if ($row['id'] === null)
+				continue;
+			$row['label'] = $this->labelForRow($row, $src, $descByKey[$source] ?? [], $langs);
+			if ($q !== '' and stripos($row['label'], $q) === false and !$this->idMatches($row['id'] ?? null, $q))
+				continue;
+			$out[] = $row;
+			if (count($out) >= $limit)
+				break;
+		}
+		return $out;
+	}
+
+	public function resolveItems(array $sources, string $source, array $ids, array $langs): array
+	{
+		$sources = self::normalize($sources);
+		if (!isset($sources[$source]))
+			return [];
+		if (empty($langs))
+			$langs = ['it'];
+
+		$descriptors = $this->descriptors($sources);
+		$descByKey = [];
+		foreach ($descriptors as $d)
+			$descByKey[$d['key']] = $d['fields'];
+
+		$provider = new ModelDataProvider($sources, $this->model);
+		$out = [];
+		foreach ($ids as $id) {
+			if (!is_string($id) and !is_numeric($id))
+				continue;
+			$item = $provider->resolveItem($source, $id, $langs[0]);
+			if ($item === null)
+				continue;
+			$row = $this->shapeItem($item, $descByKey[$source] ?? [], $langs, $provider, $descByKey, 0);
+			if ($row['id'] === null)
+				continue;
+			$row['label'] = $this->labelForRow($row, $sources[$source], $descByKey[$source] ?? [], $langs);
+			$out[] = $row;
+		}
+		return $out;
+	}
+
 	// Shape one item against its field descriptors. $depth limits relation
 	// expansion (1 = expand relations once, then stop).
 	private function shapeItem(\Model\ORM\Element|array $item, array $fields, array $langs, ModelDataProvider $provider, array $descByKey, int $depth): array
 	{
-		$row = [];
+		$row = ['id' => $this->itemId($item)];
 		foreach ($fields as $f) {
 			$fk = $f['key'];
 			$type = $f['type'] ?? 'text';
@@ -258,6 +345,21 @@ class Sources
 
 	// Validate/normalize an explicitly-declared fields array into the descriptor
 	// shape, defaulting label/type and dropping malformed entries.
+	private static function normalizeLabelField($value): array
+	{
+		if (is_string($value) and $value !== '')
+			return [$value];
+		if (is_array($value)) {
+			$out = [];
+			foreach ($value as $field) {
+				if (is_string($field) and $field !== '')
+					$out[] = $field;
+			}
+			return array_values(array_unique($out));
+		}
+		return [];
+	}
+
 	private static function normalizeFields(array $fields): array
 	{
 		$out = [];
@@ -274,6 +376,72 @@ class Sources
 			$out[] = $entry;
 		}
 		return $out;
+	}
+
+	private function labelFields(array $src, array $fields): array
+	{
+		if (!empty($src['labelField']))
+			return $src['labelField'];
+		foreach ($fields as $f) {
+			if (($f['type'] ?? 'text') === 'text')
+				return [$f['key']];
+		}
+		return ['id'];
+	}
+
+	private function labelForRow(array $row, array $src, array $fields, array $langs): string
+	{
+		$parts = [];
+		$lang = $langs[0] ?? 'it';
+		foreach ($this->labelFields($src, $fields) as $field) {
+			$value = $this->valueForLang($row[$field] ?? null, $lang);
+			if ($value !== '')
+				$parts[] = $value;
+		}
+		if (!empty($parts))
+			return implode(' - ', $parts);
+		return (string)($row['id'] ?? '');
+	}
+
+	private function valueForLang($value, string $lang): string
+	{
+		if (is_array($value)) {
+			if (array_key_exists($lang, $value) and $value[$lang] !== null)
+				return (string)$value[$lang];
+			if (array_key_exists('it', $value) and $value['it'] !== null)
+				return (string)$value['it'];
+			foreach ($value as $v) {
+				if ($v !== null)
+					return (string)$v;
+			}
+			return '';
+		}
+		return $value === null ? '' : (string)$value;
+	}
+
+	private function itemId(\Model\ORM\Element|array $item)
+	{
+		if (is_array($item))
+			return $item['id'] ?? null;
+		try {
+			return $item['id'];
+		} catch (\Throwable $e) {
+			return null;
+		}
+	}
+
+	private function idMatches($id, string $q): bool
+	{
+		return $id !== null and $q !== '' and stripos((string)$id, $q) !== false;
+	}
+
+	private function toList($value): array
+	{
+		if (is_array($value))
+			return array_values($value);
+		if ($value instanceof \Traversable)
+			return array_values(iterator_to_array($value));
+		return [];
 	}
 
 	// Read the protected ORM `relationships` map (name => options). No public

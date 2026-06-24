@@ -69,6 +69,15 @@ class Renderer
 		return $this->data->resolve($scope, $field, $lang);
 	}
 
+	// Resolve one source item by id via the active provider. No provider or not
+	// found → null (the subtree's bound fields then render empty).
+	public function resolveItem(string $source, $id, string $lang)
+	{
+		if ($this->data === null)
+			return null;
+		return $this->data->resolveItem($source, $id, $lang);
+	}
+
 	public function render(array $doc, array $opts = []): string
 	{
 		if (!array_key_exists('version', $doc) or $doc['version'] !== 1)
@@ -109,10 +118,19 @@ class Renderer
 
 		$supportsCommon = ($meta['supportsCommon'] ?? true) !== false;
 
+		// Resolve a pinned item before a common binding. A miss intentionally sets
+		// scope to null, so stale item refs render empty rather than leaking an
+		// ancestor item. If both item and binding are present, item wins.
+		$itemRef = ($supportsCommon and isset($rawConfig['item']) and is_array($rawConfig['item'])) ? $rawConfig['item'] : null;
+		if ($itemRef !== null and !(isset($itemRef['source']) and is_string($itemRef['source']) and (isset($itemRef['id']) and (is_string($itemRef['id']) or is_int($itemRef['id']) or is_float($itemRef['id'])))))
+			$itemRef = null;
+		if ($itemRef !== null)
+			$scope = $this->resolveItem($itemRef['source'], $itemRef['id'], $lang);
+
 		// Resolve a common binding to a list (no provider → empty). childItems is
 		// the node's own list if bound, else the inherited ancestor list. A binding
 		// naming no source/relation/query is treated as absent (inherit, not empty).
-		$binding = ($supportsCommon and isset($rawConfig['binding']) and is_array($rawConfig['binding'])) ? $rawConfig['binding'] : null;
+		$binding = ($itemRef === null and $supportsCommon and isset($rawConfig['binding']) and is_array($rawConfig['binding'])) ? $rawConfig['binding'] : null;
 		if ($binding !== null and !(isset($binding['source']) or isset($binding['relation']) or isset($binding['query'])))
 			$binding = null;
 		$boundList = null;

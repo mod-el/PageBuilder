@@ -77,6 +77,38 @@ class ModelDataProvider implements DataProvider
 		return '';
 	}
 
+	public function resolveItem(string $source, $id, string $lang)
+	{
+		if (!isset($this->sources[$source]))
+			return null;
+		$src = $this->sources[$source];
+
+		if (isset($src['retriever']) and is_callable($src['retriever'])) {
+			try {
+				$items = $this->toList($src['retriever'](['id' => $id], 1));
+			} catch (\Throwable $e) {
+				return null;
+			}
+			foreach ($items as $item) {
+				if ($this->idsEqual($this->itemId($item), $id))
+					return $item;
+			}
+			return null;
+		}
+
+		if (!isset($src['element']))
+			return null;
+
+		$where = $src['where'] ?? [];
+		$where['id'] = $id;
+		$options = ['stream' => false, 'limit' => 1];
+		if (!empty($src['joins']))
+			$options['joins'] = $src['joins'];
+
+		$item = $this->model->_ORM->one($src['element'], $where, $options);
+		return ($item and $item->exists()) ? $item : null;
+	}
+
 	// Resolve a {source} binding to a list of elements (or a retriever's items).
 	private function querySource(string $key, ?int $limit): array
 	{
@@ -132,6 +164,28 @@ class ModelDataProvider implements DataProvider
 		if ($value instanceof \Traversable)
 			return array_values(iterator_to_array($value));
 		return [];
+	}
+
+	private function itemId($item)
+	{
+		if (is_array($item))
+			return $item['id'] ?? null;
+		if (is_object($item) and method_exists($item, 'offsetGet')) {
+			try {
+				return $item['id'];
+			} catch (\Throwable $e) {
+			}
+		}
+		if (is_object($item) and isset($item->id))
+			return $item->id;
+		return null;
+	}
+
+	private function idsEqual($a, $b): bool
+	{
+		if ($a === null or $b === null)
+			return false;
+		return (string)$a === (string)$b;
 	}
 
 	// Multilang fallback for array items (retriever/sample maps): requested lang →

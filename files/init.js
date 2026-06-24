@@ -165,6 +165,38 @@ async function uploadImage(file) {
 	return data.url;
 }
 
+async function searchSource(source, query) {
+	const params = new URLSearchParams({
+		source,
+		q: query || '',
+		limit: '10',
+	});
+	const res = await fetch(PATH + 'page-builder/search?' + params.toString(), {
+		credentials: 'include',
+	});
+	if (!res.ok)
+		return [];
+	const data = await res.json();
+	return data && Array.isArray(data.items) ? data.items : [];
+}
+
+async function resolveItems(source, ids) {
+	const clean = Array.isArray(ids) ? ids.filter(id => id !== null && typeof id !== 'undefined') : [];
+	if (!clean.length)
+		return [];
+	const params = new URLSearchParams({
+		source,
+		ids: clean.join(','),
+	});
+	const res = await fetch(PATH + 'page-builder/resolve-items?' + params.toString(), {
+		credentials: 'include',
+	});
+	if (!res.ok)
+		return [];
+	const data = await res.json();
+	return data && Array.isArray(data.items) ? data.items : [];
+}
+
 async function checkPageBuilder() {
 	if (typeof window.PageBuilder !== 'function') {
 		console.warn('[page-builder] window.PageBuilder is not loaded yet');
@@ -215,6 +247,8 @@ async function checkPageBuilder() {
 				triggerOnChange(textarea);
 			},
 			onUploadImage: uploadImage,
+			onSearchSource: searchSource,
+			onResolveItems: resolveItems,
 		};
 		if (dataSources)
 			options.dataSources = dataSources;

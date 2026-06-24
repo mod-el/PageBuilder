@@ -156,6 +156,26 @@ class PageBuilder extends Module
 		return $helper->sample($sources, $this->languages(), $perSource);
 	}
 
+	public function searchItems(string $source, string $q, int $limit = 10): array
+	{
+		$config = $this->retrieveConfig();
+		$sources = (isset($config['sources']) and is_array($config['sources'])) ? $config['sources'] : [];
+		if (empty($sources))
+			return [];
+		$helper = new Sources($this->model);
+		return $helper->search($sources, $source, $q, $this->languages(), $limit);
+	}
+
+	public function resolveItems(string $source, array $ids): array
+	{
+		$config = $this->retrieveConfig();
+		$sources = (isset($config['sources']) and is_array($config['sources'])) ? $config['sources'] : [];
+		if (empty($sources))
+			return [];
+		$helper = new Sources($this->model);
+		return $helper->resolveItems($sources, $source, $ids, $this->languages());
+	}
+
 	private function languages(): array
 	{
 		if (class_exists('\\Model\\Multilang\\Ml')) {
