@@ -22,11 +22,39 @@ class PageBuilderFragment extends Element
 
 	public static array $fields = [
 		'source' => [
-			'type' => 'text',
+			'type' => 'select',
+			'nullable' => true,
 		],
 		'doc' => [
 			'type' => 'page-builder',
 			'scopeSourceField' => 'source',
 		],
 	];
+
+	/**
+	 * Populate the `source` select with the configured data sources (key => label).
+	 * They are config-driven (PageBuilder module config), not a DB enum/FK, so they
+	 * can't be a static option list. `init()` runs in the Element constructor *before*
+	 * the static `$fields` are read into the form, and `$this->model` is already set,
+	 * so mutating the static here lands the options in the rendered select.
+	 */
+	public function init(): void
+	{
+		try {
+			$config = $this->model->_PageBuilder->retrieveConfig();
+			$sources = (isset($config['sources']) and is_array($config['sources'])) ? $config['sources'] : [];
+			if (!$sources)
+				return;
+
+			$helper = new \Model\PageBuilder\Sources($this->model);
+			$options = ['' => ''];
+			foreach ($helper->descriptors($sources) as $descriptor) {
+				if (isset($descriptor['key']))
+					$options[$descriptor['key']] = $descriptor['label'] ?? $descriptor['key'];
+			}
+			if (count($options) > 1)
+				self::$fields['source']['options'] = $options;
+		} catch (\Throwable $e) {
+		}
+	}
 }
