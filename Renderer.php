@@ -172,14 +172,27 @@ class Renderer
 					$children[] = $this->renderNode($child, $lang, $scope, $childItems, $nextStack, $nextPrefix);
 			}
 		} elseif (($meta['iterates'] ?? false) === true) {
-			$list = $boundList !== null ? $boundList : ($items ?? []);
-			foreach ($list as $item) {
-				$buf = '';
+			if ($boundList !== null or $items !== null) {
+				// Data-driven: render the authored group once per bound (own binding)
+				// or inherited (ancestor iterator) item.
+				$list = $boundList !== null ? $boundList : $items;
+				foreach ($list as $item) {
+					$buf = '';
+					foreach ($kids as $child) {
+						if (is_array($child))
+							$buf .= $this->renderNode($child, $lang, $item, $list, $fragmentStack, $nodeIdPrefix);
+					}
+					$children[] = $buf;
+				}
+			} else {
+				// Hand-picked fallback: no binding on this node and no inherited list,
+				// so render each authored child as its own slot (slide). Mirror of the
+				// JS walk — keeps a manually-pinned slider/carousel working. A binding
+				// (even one resolving to []) keeps the iterate-per-item branch above.
 				foreach ($kids as $child) {
 					if (is_array($child))
-						$buf .= $this->renderNode($child, $lang, $item, $list, $fragmentStack, $nodeIdPrefix);
+						$children[] = $this->renderNode($child, $lang, $scope, $childItems, $fragmentStack, $nodeIdPrefix);
 				}
-				$children[] = $buf;
 			}
 		} else {
 			foreach ($kids as $child) {
