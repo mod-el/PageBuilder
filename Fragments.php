@@ -38,11 +38,12 @@ class Fragments
 		return $row['doc'] ?? null;
 	}
 
-	public function save(string $name, string $category, array $doc): ?string
+	public function save(string $name, string $category, ?string $source, array $doc): ?string
 	{
 		$data = [
 			'name' => $name,
 			'category' => $category,
+			'source' => ($source !== null and $source !== '') ? $source : null,
 			'doc' => json_encode($doc, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
 		];
 
@@ -73,25 +74,6 @@ class Fragments
 		return null;
 	}
 
-	public function delete(string $id): bool
-	{
-		try {
-			$item = $this->find($id);
-			if ($item and is_object($item) and method_exists($item, 'delete')) {
-				$item->delete();
-				return true;
-			}
-			$orm = $this->model->_ORM;
-			if (method_exists($orm, 'delete')) {
-				$orm->delete($this->element, ['id' => $id]);
-				return true;
-			}
-		} catch (\Throwable $e) {
-			return false;
-		}
-		return false;
-	}
-
 	private function find(string $id)
 	{
 		try {
@@ -117,10 +99,13 @@ class Fragments
 		}
 		if (!is_array($doc) or !isset($doc['version']) or $doc['version'] !== 1 or !isset($doc['root']) or !is_array($doc['root']))
 			return null;
+		$source = $this->field($item, 'source');
 		return [
 			'id' => (string)$id,
 			'name' => (string)$name,
 			'category' => (string)($this->field($item, 'category') ?? ''),
+			// Authoring metadata only (null when unset) — never reaches the renderer.
+			'source' => ($source !== null and $source !== '') ? (string)$source : null,
 			'doc' => $doc,
 		];
 	}

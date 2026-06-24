@@ -229,15 +229,37 @@ async function saveFragment(payload) {
 	return { id: data.id };
 }
 
-async function deleteFragment(id) {
-	const params = new URLSearchParams({ id });
-	const res = await fetch(PATH + 'page-builder/fragments?' + params.toString(), {
-		method: 'DELETE',
-		credentials: 'include',
-	});
-	if (!res.ok)
-		throw new Error('fragment delete failed');
-	fragmentsPromise = null;
+// Fragment-definition editing: the `doc` field declares `data-pb-scope-source-field`
+// naming the sibling field that holds the fragment's declared data source. Read its
+// value so the editor mounts with that root scope source (its field/chip pickers
+// then offer the source's fields while authoring the fragment body).
+function resolveScopeSourceEl(textarea) {
+	const fieldName = textarea.getAttribute('data-pb-scope-source-field');
+	if (!fieldName)
+		return null;
+	const form = textarea.closest('form') || document;
+	// ModEl renders a field input named by its key (possibly wrapped, e.g.
+	// `name[source]`); match the exact name first, then a bracketed suffix.
+	return form.querySelector('[name="' + fieldName + '"]')
+		|| form.querySelector('[name$="[' + fieldName + ']"]');
+}
+
+function remountPageBuilder(textarea) {
+	const attached = textarea.getAttribute('data-pb-attached');
+	if (attached !== null && attached !== 'attaching') {
+		const idx = parseInt(attached);
+		const inst = pbInstancesArr[idx];
+		if (inst && typeof inst.destroy === 'function') {
+			try { inst.destroy(); } catch (e) {}
+		}
+		pbInstancesArr[idx] = undefined;
+	}
+	const wrapper = textarea.previousElementSibling;
+	if (wrapper && wrapper.classList && wrapper.classList.contains('pagebuilder_wrapper'))
+		wrapper.remove();
+	textarea.style.display = '';
+	textarea.removeAttribute('data-pb-attached');
+	checkPageBuilder();
 }
 
 async function checkPageBuilder() {
@@ -287,6 +309,17 @@ async function checkPageBuilder() {
 		} catch (e) {
 		}
 
+		// Root scope source (only when this field edits a fragment definition). Re-mount
+		// the editor when the sibling source field changes, so the new scope takes effect.
+		const scopeSourceEl = resolveScopeSourceEl(textarea);
+		const scopeSource = scopeSourceEl && typeof scopeSourceEl.value === 'string' && scopeSourceEl.value !== ''
+			? scopeSourceEl.value
+			: null;
+		if (scopeSourceEl && scopeSourceEl.getAttribute('data-pb-scope-listener') === null) {
+			scopeSourceEl.setAttribute('data-pb-scope-listener', '1');
+			scopeSourceEl.addEventListener('change', () => remountPageBuilder(textarea));
+		}
+
 		const options = {
 			value,
 			languages,
@@ -300,10 +333,11 @@ async function checkPageBuilder() {
 			onResolveItems: resolveItems,
 			fragments,
 			onSaveFragment: saveFragment,
-			onDeleteFragment: deleteFragment,
 		};
 		if (dataSources)
 			options.dataSources = dataSources;
+		if (scopeSource)
+			options.scopeSource = scopeSource;
 		if (customComponents)
 			options.onRenderComponent = renderComponentNode;
 

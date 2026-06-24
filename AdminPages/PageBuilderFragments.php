@@ -20,6 +20,7 @@ class PageBuilderFragments extends AdminPage
 			'fields' => [
 				'name',
 				'category',
+				'source',
 			],
 		];
 	}

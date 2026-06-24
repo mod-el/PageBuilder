@@ -196,18 +196,12 @@ class PageBuilder extends Module
 		return $helper->list();
 	}
 
-	public function saveFragment(string $name, string $category, array $doc): ?string
+	public function saveFragment(string $name, string $category, ?string $source, array $doc): ?string
 	{
 		if (!isset($doc['version']) or $doc['version'] !== 1 or !isset($doc['root']) or !is_array($doc['root']))
 			return null;
 		$helper = new Fragments($this->model, $this->fragmentElement());
-		return $helper->save($name, $category, $doc);
-	}
-
-	public function deleteFragment(string $id): bool
-	{
-		$helper = new Fragments($this->model, $this->fragmentElement());
-		return $helper->delete($id);
+		return $helper->save($name, $category, $source, $doc);
 	}
 
 	private function languages(): array

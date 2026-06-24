@@ -32,6 +32,13 @@ class PageBuilder extends Field
 		if (!empty($components))
 			$attributes['data-pb-components'] = json_encode($components);
 
+		// Fragment-definition editing: the field declares a sibling field holding the
+		// fragment's declared data source (see PageBuilderFragment). init.js reads that
+		// sibling's value and feeds it to the editor as the root scope source, so the
+		// body's field/chip pickers offer that source while authoring.
+		if (!empty($this->options['scopeSourceField']))
+			$attributes['data-pb-scope-source-field'] = (string)$this->options['scopeSourceField'];
+
 		$this->options['type'] = 'textarea';
 		parent::renderWithLang($attributes, $lang);
 	}
@@ -58,6 +65,9 @@ class PageBuilder extends Field
 		$components = $this->componentDescriptors();
 		if (!empty($components))
 			$response['attributes']['data-pb-components'] = json_encode($components);
+
+		if (!empty($this->options['scopeSourceField']))
+			$response['attributes']['data-pb-scope-source-field'] = (string)$this->options['scopeSourceField'];
 
 		return $response;
 	}
