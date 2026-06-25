@@ -26,6 +26,5 @@ foreach ([['width', 'width'], ['height', 'height'], ['maxWidth', 'max-width'], [
 }
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
-// img-fluid caps at container width while keeping intrinsic size; align-self-start
-// stops the flex container parent from stretching it to full width (parity with JS).
-echo '<img src="' . $src . '" alt="' . $alt . '" class="img-fluid align-self-start' . $extra . '"' . $styleAttr . '>';
+// img-fluid caps at container width while keeping intrinsic size.
+echo '<img src="' . $src . '" alt="' . $alt . '" class="img-fluid' . $extra . '"' . $styleAttr . '>';

@@ -26,8 +26,17 @@ use Model\Core\Core;
  *   'hotels' => ['element' => 'TravioService', 'where' => […], 'joins' => […], 'fields' => […], 'searchable' => true, 'labelField' => ['name']]
  *   'custom' => ['retriever' => fn(array $filters, ?int $limit) => […list…], 'fields' => […]]  // fields required; filters include `q` for search and `id` for resolveItem
  *
- * Field descriptor shape (editor contract): {key, label, type, source?} where
- * type ∈ {text, number, image, relation}; a relation carries the target source key.
+ * Field descriptor shape (editor contract): {key, label, type, source?, internal?}
+ * where type ∈ {text, number, image, relation}; a relation carries the target
+ * source key. `internal` marks a synthesized relation-target source (see below) —
+ * editor-only, never serialized, hidden from the top-level source pickers.
+ *
+ * Relations are introspected from the ORM element even when their target element
+ * is NOT a declared source: such a relation points at a *synthesized* internal
+ * source (key `SYNTH_PREFIX . elementClass`) carrying just the target's scalar
+ * fields, so nested-pick ("the URL of the first image", docs/dynamic-data.md §4.6)
+ * works against any relation. Synth sources hold scalars only — no nested relations
+ * — which bounds the synthesis to one level (matching nested-pick's "one level").
  *
  * Auto-introspection is best-effort and degrades gracefully (a source with no
  * derivable fields still resolves lists for bindings, it just offers no pickers);
@@ -35,6 +44,11 @@ use Model\Core\Core;
  */
 class Sources
 {
+	// Key prefix for synthesized relation-target sources (a relation whose target
+	// element is not a declared source). Internal: never serialized into a document,
+	// filtered out of the editor's top-level source pickers.
+	private const SYNTH_PREFIX = '__pbrel_';
+
 	private Core $model;
 
 	public function __construct(Core $model)
@@ -105,6 +119,48 @@ class Sources
 			if (!empty($src['labelField']))
 				$entry['labelField'] = count($src['labelField']) === 1 ? $src['labelField'][0] : $src['labelField'];
 			$out[] = $entry;
+		}
+
+		// Synthesize an internal source for every relation target that is not a
+		// declared source, so its scalar fields are offerable as nested-pick
+		// sub-fields. Synth sources carry scalars only → no further synth keys, so a
+		// single pass suffices.
+		$existingKeys = array_map(static fn($d) => $d['key'], $out);
+		foreach (self::collectSynthTargets($out, $existingKeys) as $synthKey => $elementClass) {
+			$out[] = [
+				'key' => $synthKey,
+				'label' => self::humanize($elementClass),
+				'fields' => $this->introspectScalarFields($elementClass),
+				'internal' => true,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Pure: scan built descriptors for relation `source` keys that are synthesized
+	 * (SYNTH_PREFIX) and not already present, returning [synthKey => elementClass],
+	 * deduped (two relations to the same element collapse to one). No model access —
+	 * unit-testable.
+	 */
+	public static function collectSynthTargets(array $descriptors, array $existingKeys): array
+	{
+		$existing = array_fill_keys($existingKeys, true);
+		$prefixLen = strlen(self::SYNTH_PREFIX);
+		$out = [];
+		foreach ($descriptors as $d) {
+			if (empty($d['fields']) or !is_array($d['fields']))
+				continue;
+			foreach ($d['fields'] as $f) {
+				if (($f['type'] ?? null) !== 'relation')
+					continue;
+				$src = $f['source'] ?? null;
+				if (!is_string($src) or strncmp($src, self::SYNTH_PREFIX, $prefixLen) !== 0)
+					continue;
+				if (isset($existing[$src]) or isset($out[$src]))
+					continue;
+				$out[$src] = substr($src, $prefixLen);
+			}
 		}
 		return $out;
 	}
@@ -289,13 +345,13 @@ class Sources
 	}
 
 	/**
-	 * Derive field descriptors from an ORM element's metadata. Combines:
-	 *   - multilang fields (the *_texts columns) → type 'text'
-	 *   - main-table scalar columns → 'number' (numeric) or 'text', FK/system cols skipped
-	 *   - element $fields type overrides ('file' → 'image')
-	 *   - relations (reflected) whose target maps to a declared source → 'relation'
-	 * Best-effort: any failure yields an empty list (the source still works for
-	 * list bindings, just without field pickers).
+	 * Derive field descriptors from an ORM element's metadata. Combines the element's
+	 * scalar fields (scalarFieldsOf: multilang, main-table columns, $fields overrides)
+	 * with EVERY reflected relationship → type 'relation'. A relation's `source` is the
+	 * declared source for its target element, or a synthesized internal key
+	 * (SYNTH_PREFIX . target) that descriptors() materializes. Best-effort: any failure
+	 * yields an empty list (the source still works for list bindings, just without
+	 * field pickers).
 	 */
 	public function introspectFields(string $elementClass, array $elementToKey = []): array
 	{
@@ -308,6 +364,45 @@ class Sources
 			return [];
 		}
 
+		$fields = $this->scalarFieldsOf($el);
+
+		// Relations: emit EVERY relationship with a target element. When the target
+		// is a declared source, point at it (keeps its configured label/fields);
+		// otherwise point at a synthesized internal source (built by descriptors()).
+		// Table-only relations (no `element`) are skipped — nothing to introspect.
+		foreach ($this->reflectRelationships($el) as $relName => $opts) {
+			$target = $opts['element'] ?? null;
+			if (!is_string($target) or $target === '')
+				continue;
+			$sourceKey = $elementToKey[$target] ?? (self::SYNTH_PREFIX . $target);
+			$fields[] = [
+				'key' => $relName,
+				'label' => self::humanize($relName),
+				'type' => 'relation',
+				'source' => $sourceKey,
+			];
+		}
+
+		return $fields;
+	}
+
+	// Scalar fields of an element (steps 1-3 of introspection: multilang, main-table
+	// columns, element $fields overrides) WITHOUT relations. Used for synthesized
+	// relation-target sources, so nested-pick stays one level deep.
+	public function introspectScalarFields(string $elementClass): array
+	{
+		if ($elementClass === '')
+			return [];
+		try {
+			$el = $this->model->_ORM->create($elementClass);
+		} catch (\Throwable $e) {
+			return [];
+		}
+		return $this->scalarFieldsOf($el);
+	}
+
+	private function scalarFieldsOf(\Model\ORM\Element $el): array
+	{
 		$table = $el->settings['table'] ?? null;
 		$elementFields = is_array($el->settings['fields'] ?? null) ? $el->settings['fields'] : [];
 
@@ -368,19 +463,6 @@ class Sources
 				continue;
 			$seen[$fk] = true;
 			$fields[] = ['key' => $fk, 'label' => self::humanize($fk), 'type' => $type];
-		}
-
-		// 4) relations whose target element maps to a declared source
-		foreach ($this->reflectRelationships($el) as $relName => $opts) {
-			$target = $opts['element'] ?? null;
-			if (!is_string($target) or !isset($elementToKey[$target]))
-				continue;
-			$fields[] = [
-				'key' => $relName,
-				'label' => self::humanize($relName),
-				'type' => 'relation',
-				'source' => $elementToKey[$target],
-			];
 		}
 
 		return $fields;

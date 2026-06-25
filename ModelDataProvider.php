@@ -148,11 +148,18 @@ class ModelDataProvider implements DataProvider
 		$items = [];
 		if (is_object($scope)) {
 			try {
-				$items = $this->toList($scope->{$relation});
+				$rel = $scope->{$relation};
+				// A `single`/belongsTo relation yields one Element, not a list — wrap it
+				// so nested-pick (index 0) and list bindings resolve it.
+				if (is_object($rel) and method_exists($rel, 'offsetGet'))
+					$items = [$rel];
+				else
+					$items = $this->toList($rel);
 			} catch (\Throwable $e) {
 				$items = [];
 			}
 		} elseif (is_array($scope) and isset($scope[$relation])) {
+			// Array scope (retriever/sample items) already carries relations list-shaped.
 			$items = $this->toList($scope[$relation]);
 		}
 		return ($limit !== null) ? array_slice($items, 0, max(0, $limit)) : $items;
