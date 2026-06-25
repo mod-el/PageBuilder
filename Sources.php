@@ -33,10 +33,13 @@ use Model\Core\Core;
  *
  * Relations are introspected from the ORM element even when their target element
  * is NOT a declared source: such a relation points at a *synthesized* internal
- * source (key `SYNTH_PREFIX . elementClass`) carrying just the target's scalar
- * fields, so nested-pick ("the URL of the first image", docs/dynamic-data.md §4.6)
- * works against any relation. Synth sources hold scalars only — no nested relations
- * — which bounds the synthesis to one level (matching nested-pick's "one level").
+ * source carrying just the target's scalar fields, so nested-pick ("the URL of the
+ * first image", docs/dynamic-data.md §4.6) works against any relation. Both kinds of
+ * ModEl relation are covered: element-backed (`SYNTH_PREFIX . elementClass`, scalars
+ * from the target Element) and table-backed (`SYNTH_PREFIX . 'tbl_' . table`, scalars
+ * from the table's columns + the relation's `fields` overrides). Synth sources hold
+ * scalars only — no nested relations — which bounds the synthesis to one level
+ * (matching nested-pick's "one level").
  *
  * Auto-introspection is best-effort and degrades gracefully (a source with no
  * derivable fields still resolves lists for bindings, it just offers no pickers);
@@ -103,11 +106,16 @@ class Sources
 				$elementToKey[$src['element']] = $key;
 		}
 
+		// Synthesized internal sources for relation targets that are not declared
+		// sources, deduped by synth key across all sources (built inside
+		// introspectFields, which has each relationship's element/table/fields opts).
+		$synth = [];
+
 		$out = [];
 		foreach ($sources as $key => $src) {
 			$fields = (isset($src['fields']) and is_array($src['fields']))
 				? self::normalizeFields($src['fields'])
-				: $this->introspectFields($src['element'] ?? '', $elementToKey);
+				: $this->introspectFields($src['element'] ?? '', $elementToKey, $synth);
 
 			$entry = [
 				'key' => $key,
@@ -121,46 +129,11 @@ class Sources
 			$out[] = $entry;
 		}
 
-		// Synthesize an internal source for every relation target that is not a
-		// declared source, so its scalar fields are offerable as nested-pick
-		// sub-fields. Synth sources carry scalars only → no further synth keys, so a
-		// single pass suffices.
-		$existingKeys = array_map(static fn($d) => $d['key'], $out);
-		foreach (self::collectSynthTargets($out, $existingKeys) as $synthKey => $elementClass) {
-			$out[] = [
-				'key' => $synthKey,
-				'label' => self::humanize($elementClass),
-				'fields' => $this->introspectScalarFields($elementClass),
-				'internal' => true,
-			];
-		}
-		return $out;
-	}
-
-	/**
-	 * Pure: scan built descriptors for relation `source` keys that are synthesized
-	 * (SYNTH_PREFIX) and not already present, returning [synthKey => elementClass],
-	 * deduped (two relations to the same element collapse to one). No model access —
-	 * unit-testable.
-	 */
-	public static function collectSynthTargets(array $descriptors, array $existingKeys): array
-	{
-		$existing = array_fill_keys($existingKeys, true);
-		$prefixLen = strlen(self::SYNTH_PREFIX);
-		$out = [];
-		foreach ($descriptors as $d) {
-			if (empty($d['fields']) or !is_array($d['fields']))
-				continue;
-			foreach ($d['fields'] as $f) {
-				if (($f['type'] ?? null) !== 'relation')
-					continue;
-				$src = $f['source'] ?? null;
-				if (!is_string($src) or strncmp($src, self::SYNTH_PREFIX, $prefixLen) !== 0)
-					continue;
-				if (isset($existing[$src]) or isset($out[$src]))
-					continue;
-				$out[$src] = substr($src, $prefixLen);
-			}
+		// Append the synthesized sources (skip any that collide with a real source key).
+		$existing = array_fill_keys(array_map(static fn($d) => $d['key'], $out), true);
+		foreach ($synth as $synthKey => $desc) {
+			if (!isset($existing[$synthKey]))
+				$out[] = $desc;
 		}
 		return $out;
 	}
@@ -348,12 +321,14 @@ class Sources
 	 * Derive field descriptors from an ORM element's metadata. Combines the element's
 	 * scalar fields (scalarFieldsOf: multilang, main-table columns, $fields overrides)
 	 * with EVERY reflected relationship → type 'relation'. A relation's `source` is the
-	 * declared source for its target element, or a synthesized internal key
-	 * (SYNTH_PREFIX . target) that descriptors() materializes. Best-effort: any failure
-	 * yields an empty list (the source still works for list bindings, just without
-	 * field pickers).
+	 * declared source for its target element, or a synthesized internal source
+	 * accumulated into `$synth` (keyed by synth key): element-backed relations
+	 * introspect the target Element's scalars; table-backed relations (ModEl defaults
+	 * `element` to the base `'Element'` and carries a `table`) introspect that table's
+	 * columns + the relation's `fields` overrides. Best-effort: any failure yields an
+	 * empty list (the source still works for list bindings, just without field pickers).
 	 */
-	public function introspectFields(string $elementClass, array $elementToKey = []): array
+	public function introspectFields(string $elementClass, array $elementToKey = [], array &$synth = []): array
 	{
 		if ($elementClass === '')
 			return [];
@@ -366,15 +341,45 @@ class Sources
 
 		$fields = $this->scalarFieldsOf($el);
 
-		// Relations: emit EVERY relationship with a target element. When the target
-		// is a declared source, point at it (keeps its configured label/fields);
-		// otherwise point at a synthesized internal source (built by descriptors()).
-		// Table-only relations (no `element`) are skipped — nothing to introspect.
+		// Relations: emit EVERY relationship. Point its `source` at a declared source
+		// when the target element is one (keeps its configured label/fields), else at a
+		// synthesized internal source carrying just the target's scalar fields.
 		foreach ($this->reflectRelationships($el) as $relName => $opts) {
-			$target = $opts['element'] ?? null;
-			if (!is_string($target) or $target === '')
-				continue;
-			$sourceKey = $elementToKey[$target] ?? (self::SYNTH_PREFIX . $target);
+			$element = $opts['element'] ?? null;
+			// ModEl sets `element` to the base 'Element' for a table-only relation, so
+			// only a non-base class name counts as a real element target.
+			$isRealElement = (is_string($element) and $element !== '' and $element !== 'Element');
+
+			if ($isRealElement and isset($elementToKey[$element])) {
+				$sourceKey = $elementToKey[$element];
+			} elseif ($isRealElement) {
+				$sourceKey = self::SYNTH_PREFIX . $element;
+				if (!isset($synth[$sourceKey])) {
+					$synth[$sourceKey] = [
+						'key' => $sourceKey,
+						'label' => self::humanize($element),
+						'fields' => $this->introspectScalarFields($element),
+						'internal' => true,
+					];
+				}
+			} else {
+				// Table-backed relation: introspect the table's columns directly. The
+				// relation's `fields` option supplies type overrides (no Element class).
+				$table = $opts['table'] ?? null;
+				if (!is_string($table) or $table === '')
+					continue; // nothing to introspect → don't offer a dead relation
+				$sourceKey = self::SYNTH_PREFIX . 'tbl_' . $table;
+				if (!isset($synth[$sourceKey])) {
+					$overrides = is_array($opts['fields'] ?? null) ? $opts['fields'] : [];
+					$synth[$sourceKey] = [
+						'key' => $sourceKey,
+						'label' => self::humanize($table),
+						'fields' => $this->scalarFieldsOfTable($table, $overrides),
+						'internal' => true,
+					];
+				}
+			}
+
 			$fields[] = [
 				'key' => $relName,
 				'label' => self::humanize($relName),
@@ -405,7 +410,15 @@ class Sources
 	{
 		$table = $el->settings['table'] ?? null;
 		$elementFields = is_array($el->settings['fields'] ?? null) ? $el->settings['fields'] : [];
+		return $this->scalarFieldsOfTable($table, $elementFields);
+	}
 
+	// Steps 1-3 of introspection given a table name + a field-type override map (an
+	// element's settings['fields'], or a table-based relation's `fields` option, which
+	// is the only source of types when there's no Element class). Relations are NOT
+	// included here, keeping synthesized sources one level deep.
+	private function scalarFieldsOfTable(?string $table, array $elementFields): array
+	{
 		$db = null;
 		try {
 			$db = \Model\Db\Db::getConnection();
