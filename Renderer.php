@@ -63,13 +63,66 @@ class Renderer
 		return $this->data->query($binding, $params, $scope, $lang);
 	}
 
-	// Resolve one field of the current scope item via the active provider. No
-	// provider or no scope → '' (mirrors JS ctx.resolveField). Does NOT escape.
-	public function resolveField(string $field, $scope, string $lang)
+	// Resolve one field reference of the current scope item via the active
+	// provider. No provider or no scope → '' (mirrors JS ctx.resolveField). Does
+	// NOT escape. `$field` is either a plain scalar key (string) or a nested-pick
+	// ref — a {relation,index,field} array (leaf binding) or a "@rel:idx:field"
+	// token (chip). A nested ref queries the relation, picks one element, then
+	// reads its sub-field; out-of-range / empty list → ''. Mirror of the JS
+	// resolveField closure (src/core/editor.js renderNode).
+	public function resolveField($field, $scope, string $lang)
 	{
 		if ($this->data === null or $scope === null)
 			return '';
+		$nested = self::parseFieldRef($field);
+		if ($nested !== null) {
+			$list = $this->data->query(['relation' => $nested['relation']], [], $scope, $lang);
+			$el = self::pickFromList($list, $nested['index']);
+			return $el !== null ? $this->data->resolve($el, $nested['field'], $lang) : '';
+		}
+		if (!is_string($field))
+			return '';
 		return $this->data->resolve($scope, $field, $lang);
+	}
+
+	// Mirror of _common.js parseFieldRef. Normalizes a nested-pick field reference
+	// — a {relation,index,field} array (leaf binding) or a "@rel:idx:field" token
+	// (chip) — to {relation,index,field}, or null for a plain scalar key. One level
+	// only (contract §4.6). Results must be byte-identical to the JS helper.
+	public static function parseFieldRef($ref): ?array
+	{
+		if (is_array($ref)) {
+			$relation = $ref['relation'] ?? null;
+			$field = $ref['field'] ?? null;
+			if (!is_string($relation) or $relation === '' or !is_string($field) or $field === '')
+				return null;
+			$index = $ref['index'] ?? null;
+			if (is_int($index))
+				$idx = $index;
+			elseif (is_string($index) and preg_match('/^-?\d+$/', $index))
+				$idx = (int)$index;
+			else
+				return null;
+			return ['relation' => $relation, 'index' => $idx, 'field' => $field];
+		}
+		if (is_string($ref) and preg_match('/^@([\w-]+):(-?\d+):([\w-]+)$/', $ref, $m))
+			return ['relation' => $m[1], 'index' => (int)$m[2], 'field' => $m[3]];
+		return null;
+	}
+
+	// Mirror of _common.js pickFromList. Picks one element of a list by index; a
+	// negative index counts from the end (-1 = last). Out-of-range / non-array →
+	// null (the bound field then renders empty).
+	public static function pickFromList($list, int $index)
+	{
+		if (!is_array($list))
+			return null;
+		$vals = array_values($list);
+		$n = count($vals);
+		$i = $index < 0 ? $n + $index : $index;
+		if ($i < 0 or $i >= $n)
+			return null;
+		return $vals[$i];
 	}
 
 	// Resolve one source item by id via the active provider. No provider or not
@@ -253,8 +306,10 @@ class Renderer
 		$renderer = $this;
 		// Bound to the active provider + current scope/lang (contract §4.3 mirror
 		// of JS ctx.resolveField). Templates call $resolveField('name') to read a
-		// field of the current data item, then escape the result themselves.
-		$resolveField = static function (string $field) use ($renderer, $scope, $lang) {
+		// field of the current data item, then escape the result themselves. The
+		// argument is untyped: a leaf binding may pass a nested-pick {relation,
+		// index,field} array (chips pass the equivalent "@rel:idx:field" token).
+		$resolveField = static function ($field) use ($renderer, $scope, $lang) {
 			return $renderer->resolveField($field, $scope, $lang);
 		};
 		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField, string $nodeId): void {
