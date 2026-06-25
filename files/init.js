@@ -196,6 +196,20 @@ async function searchSource(source, query) {
 	return data && Array.isArray(data.items) ? data.items : [];
 }
 
+// Full item list for a (non-searchable) source's picker dropdown. Decoupled from
+// sample-data (which stays capped by sample-data-limit) — the dropdown offers all
+// items.
+async function listSource(source) {
+	const params = new URLSearchParams({ source });
+	const res = await fetch(PATH + 'page-builder/list-items?' + params.toString(), {
+		credentials: 'include',
+	});
+	if (!res.ok)
+		return [];
+	const data = await res.json();
+	return data && Array.isArray(data.items) ? data.items : [];
+}
+
 async function resolveItems(source, ids) {
 	const clean = Array.isArray(ids) ? ids.filter(id => id !== null && typeof id !== 'undefined') : [];
 	if (!clean.length)
@@ -330,6 +344,7 @@ async function checkPageBuilder() {
 			},
 			onUploadImage: uploadImage,
 			onSearchSource: searchSource,
+			onListSource: listSource,
 			onResolveItems: resolveItems,
 			fragments,
 			onSaveFragment: saveFragment,

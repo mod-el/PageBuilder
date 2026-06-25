@@ -11,6 +11,7 @@ class Config extends Module_Config
 				'include-host-in-uploads' => false,
 				'upload-path' => 'app-data/img/page-builder/',
 				'sample-data-limit' => 4,
+				'picker-options-limit' => null,
 				'fragments-element' => 'PageBuilderFragment',
 				'sources' => [],
 				'components' => [],

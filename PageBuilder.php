@@ -180,6 +180,23 @@ class PageBuilder extends Module
 		return $helper->search($sources, $source, $q, $this->languages(), $limit);
 	}
 
+	/**
+	 * Full item list for a source's picker dropdown (non-searchable sources). Unlike
+	 * sampleData() this is NOT capped by `sample-data-limit`; an optional
+	 * `picker-options-limit` config (default null = all) is a safety cap for sources
+	 * left non-searchable by mistake.
+	 */
+	public function listItems(string $source): array
+	{
+		$config = $this->retrieveConfig();
+		$sources = (isset($config['sources']) and is_array($config['sources'])) ? $config['sources'] : [];
+		if (empty($sources))
+			return [];
+		$limit = (isset($config['picker-options-limit']) and is_numeric($config['picker-options-limit'])) ? (int)$config['picker-options-limit'] : null;
+		$helper = new Sources($this->model);
+		return $helper->listItems($sources, $source, $this->languages(), $limit);
+	}
+
 	public function resolveItems(string $source, array $ids): array
 	{
 		$config = $this->retrieveConfig();

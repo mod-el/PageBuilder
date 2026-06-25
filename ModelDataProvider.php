@@ -128,6 +128,8 @@ class ModelDataProvider implements DataProvider
 		$options = ['stream' => false];
 		if (!empty($src['joins']))
 			$options['joins'] = $src['joins'];
+		if (!empty($src['group_by']))
+			$options['group_by'] = $src['group_by'];
 		if ($limit !== null)
 			$options['limit'] = max(0, $limit);
 

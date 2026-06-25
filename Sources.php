@@ -184,6 +184,49 @@ class Sources
 		return $out;
 	}
 
+	/**
+	 * Full item list for a (non-searchable) source's picker dropdown. Unlike
+	 * sample() this is NOT bounded by sample-data-limit — the dropdown is meant to
+	 * offer every item. Relations are not expanded (depth 0): the dropdown only
+	 * needs id + label. $limit is an optional safety cap (null = all); large sources
+	 * should be declared `searchable` instead.
+	 */
+	public function listItems(array $sources, string $source, array $langs, ?int $limit = null): array
+	{
+		$sources = self::normalize($sources);
+		if (!isset($sources[$source]))
+			return [];
+		if (empty($langs))
+			$langs = ['it'];
+
+		$descriptors = $this->descriptors($sources);
+		$descByKey = [];
+		foreach ($descriptors as $d)
+			$descByKey[$d['key']] = $d['fields'];
+
+		$provider = new ModelDataProvider($sources, $this->model);
+		$src = $sources[$source];
+		if (isset($src['retriever']) and is_callable($src['retriever'])) {
+			try {
+				$items = $this->toList($src['retriever']([], $limit));
+			} catch (\Throwable $e) {
+				$items = [];
+			}
+		} else {
+			$items = $provider->query(['source' => $source], $limit !== null ? ['limit' => $limit] : [], null, $langs[0]);
+		}
+
+		$out = [];
+		foreach ($items as $item) {
+			$row = $this->shapeItem($item, $descByKey[$source] ?? [], $langs, $provider, $descByKey, 0);
+			if ($row['id'] === null)
+				continue;
+			$row['label'] = $this->labelForRow($row, $src, $descByKey[$source] ?? [], $langs);
+			$out[] = $row;
+		}
+		return $out;
+	}
+
 	public function resolveItems(array $sources, string $source, array $ids, array $langs): array
 	{
 		$sources = self::normalize($sources);

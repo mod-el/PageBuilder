@@ -10,6 +10,7 @@ use Model\Core\Controller;
  *
  *   GET  page-builder/sample-data  → { "sources": { "<key>": [ …sample items… ] } }
  *   GET  page-builder/search?source=…&q=… → { "items": [ … ] }
+ *   GET  page-builder/list-items?source=… → { "items": [ … ] }   (full picker dropdown list)
  *   GET  page-builder/resolve-items?source=…&ids=… → { "items": [ … ] }
  *   GET  page-builder/fragments → { "fragments": [ … ] }
  *   POST page-builder/fragments → { "id": "…" }       (body: { name, category, source, doc })
@@ -36,6 +37,9 @@ class PageBuilderController extends Controller
 					$q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
 					$limit = (isset($_GET['limit']) and is_numeric($_GET['limit'])) ? (int)$_GET['limit'] : 10;
 					return ['items' => $this->model->_PageBuilder->searchItems($source, $q, $limit)];
+				case 'list-items':
+					$source = isset($_GET['source']) ? (string)$_GET['source'] : '';
+					return ['items' => $this->model->_PageBuilder->listItems($source)];
 				case 'resolve-items':
 					$source = isset($_GET['source']) ? (string)$_GET['source'] : '';
 					$idsRaw = $_GET['ids'] ?? [];

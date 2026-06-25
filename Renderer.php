@@ -81,6 +81,26 @@ class Renderer
 		return $this->data->resolveItem($source, $id, $lang);
 	}
 
+	// Upper bound on count-mode repetitions, so a bad bound value can't generate
+	// unbounded DOM. Mirror of editor.js REPEAT_COUNT_CAP (render parity).
+	private const REPEAT_COUNT_CAP = 200;
+
+	// Resolve the repetition count for an iterating node in count mode: the bound
+	// `count` field (config.bindings.count → scope field) wins over the literal
+	// config.count. Non-numeric / empty / negative → 0; clamped to the cap. Mirror
+	// of editor.js resolveRepeatCount (render parity). The literal falls back to 3 —
+	// the repeat `count` schema default — because canonical JSON omits an untouched
+	// default, so the JS walk (via resolveConfig) and this side must agree on it.
+	private function resolveRepeatCount(array $rawConfig, $scope, string $lang): int
+	{
+		$fieldKey = (isset($rawConfig['bindings']['count']) and is_string($rawConfig['bindings']['count'])) ? $rawConfig['bindings']['count'] : '';
+		$raw = $fieldKey !== '' ? $this->resolveField($fieldKey, $scope, $lang) : ($rawConfig['count'] ?? 3);
+		$n = (int) $raw;
+		if ($n <= 0)
+			return 0;
+		return min($n, self::REPEAT_COUNT_CAP);
+	}
+
 	public function resolveFragment(string $id): ?array
 	{
 		if ($this->fragments === null)
@@ -170,6 +190,20 @@ class Renderer
 			foreach ($root as $child) {
 				if (is_array($child))
 					$children[] = $this->renderNode($child, $lang, $scope, $childItems, $nextStack, $nextPrefix);
+			}
+		} elseif (($meta['iterates'] ?? false) === true and ($rawConfig['mode'] ?? 'foreach') === 'count') {
+			// Count mode: repeat the authored group a fixed N times with the parent
+			// scope UNCHANGED (chips / leaf bindings inside still resolve against it).
+			// N is the bindable `count` config — a literal or bound to a scope field.
+			// Mirror of the JS walk (src/core/editor.js) — preview output is identical.
+			$n = $this->resolveRepeatCount($rawConfig, $scope, $lang);
+			for ($i = 0; $i < $n; $i++) {
+				$buf = '';
+				foreach ($kids as $child) {
+					if (is_array($child))
+						$buf .= $this->renderNode($child, $lang, $scope, $childItems, $fragmentStack, $nodeIdPrefix);
+				}
+				$children[] = $buf;
 			}
 		} elseif (($meta['iterates'] ?? false) === true) {
 			if ($boundList !== null or $items !== null) {
