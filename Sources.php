@@ -410,7 +410,27 @@ class Sources
 	{
 		$table = $el->settings['table'] ?? null;
 		$elementFields = is_array($el->settings['fields'] ?? null) ? $el->settings['fields'] : [];
-		return $this->scalarFieldsOfTable($table, $elementFields);
+		$fields = $this->scalarFieldsOfTable($table, $elementFields);
+
+		// A controller-backed element exposes a public URL via getUrl(); offer it as a
+		// synthetic bindable scalar so authors can link to the record (e.g. a button href).
+		// Resolved at render time in ModelDataProvider::resolve.
+		if (self::hasController($el))
+			$fields[] = ['key' => '_url', 'label' => 'URL', 'type' => 'text'];
+
+		return $fields;
+	}
+
+	// True when the element declares a non-empty static $controller (i.e. it is routable
+	// and getUrl() can yield a public URL). Guarded — best-effort, like the rest of
+	// introspection.
+	private static function hasController(\Model\ORM\Element $el): bool
+	{
+		try {
+			return $el::$controller !== null and $el::$controller !== '';
+		} catch (\Throwable $e) {
+			return false;
+		}
 	}
 
 	// Steps 1-3 of introspection given a table name + a field-type override map (an

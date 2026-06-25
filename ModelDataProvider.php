@@ -43,6 +43,17 @@ class ModelDataProvider implements DataProvider
 	public function resolve($item, string $field, string $lang)
 	{
 		if (is_object($item) and method_exists($item, 'offsetGet')) {
+			// Controller-backed elements expose their public URL via getUrl() (offered as
+			// the synthetic `_url` field by Sources introspection). Returns '' when the
+			// element has no controller (getUrl yields null) — never throws.
+			if ($field === '_url') {
+				try {
+					return (string)($item->getUrl(['lang' => $lang]) ?? '');
+				} catch (\Throwable $e) {
+					return '';
+				}
+			}
+
 			// ORM Element. An image/file field resolves to its public URL.
 			$settingsFields = (isset($item->settings['fields']) and is_array($item->settings['fields'])) ? $item->settings['fields'] : [];
 			if (($settingsFields[$field]['type'] ?? null) === 'file') {
