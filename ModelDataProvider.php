@@ -48,7 +48,7 @@ class ModelDataProvider implements DataProvider
 			// element has no controller (getUrl yields null) — never throws.
 			if ($field === '_url') {
 				try {
-					return (string)($item->getUrl(['lang' => $lang]) ?? '');
+					return (string)($item->getUrl([], ['lang' => $lang]) ?? '');
 				} catch (\Throwable $e) {
 					return '';
 				}

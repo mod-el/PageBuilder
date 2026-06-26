@@ -513,11 +513,41 @@ class Renderer
 
 	public static function directionClasses(?string $direction): string
 	{
+		// `none` disables flex entirely (children flow as normal blocks). Distinct
+		// from null, which keeps the flex-column default (mirror of _common.js).
+		if ($direction === 'none')
+			return '';
 		// `stack` is a marker class only; the overlay layout is driven by inline
 		// styles the container template emits (mirror of _common.js directionClasses).
 		if ($direction === 'stack')
 			return 'pb-stack';
+		if ($direction === 'grid')
+			return 'row';
 		return $direction === 'horizontal' ? 'd-flex flex-row' : 'd-flex flex-column';
+	}
+
+	// Parse a grid column-width spec into 1..12 ints — a single number applied to
+	// every cell, or a comma pattern cycled per cell index. Out-of-range / invalid
+	// entries are dropped; empty result means equal-width cells. Mirror of
+	// _common.js parseGridPattern (byte-parity on "3,,6", "-3", "13", "3px").
+	public static function parseGridPattern($spec): array
+	{
+		$str = is_string($spec) ? $spec : (string) $spec;
+		$out = [];
+		foreach (explode(',', $str) as $part) {
+			$n = (int) trim($part);
+			if ($n >= 1 and $n <= 12)
+				$out[] = $n;
+		}
+		return $out;
+	}
+
+	// Col class for cell $i, cycling the pattern. Empty → equal-width `col`.
+	public static function gridColClass(array $pattern, int $i): string
+	{
+		if (count($pattern) === 0)
+			return 'col';
+		return 'col-' . $pattern[$i % count($pattern)];
 	}
 
 	public static function colCount($cols): int

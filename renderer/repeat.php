@@ -23,4 +23,14 @@ $alignPart = $alignCls !== '' ? ' ' . $alignCls : '';
 $gapN = isset($config['gap']) ? (int) $config['gap'] : 0;
 $gapCls = ($gapN >= 1 and $gapN <= 5) ? 'gap-' . $gapN : '';
 $gapPart = $gapCls !== '' ? ' ' . $gapCls : '';
-echo '<div class="pb-repeat ' . $directionCls . $gapPart . $alignPart . $extra . '">' . implode('', $children) . '</div>';
+// Grid: each per-item group goes in a Bootstrap col cell, width cycled from the
+// pattern (mirror of the JS render's preview branch — edit mode there is unwrapped).
+if (($config['direction'] ?? null) === 'grid') {
+	$pattern = Renderer::parseGridPattern($config['columns'] ?? '');
+	$inner = '';
+	foreach ($children as $i => $c)
+		$inner .= '<div class="' . Renderer::gridColClass($pattern, $i) . '">' . $c . '</div>';
+} else {
+	$inner = implode('', $children);
+}
+echo '<div class="pb-repeat ' . $directionCls . $gapPart . $alignPart . $extra . '">' . $inner . '</div>';
