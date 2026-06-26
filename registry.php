@@ -17,6 +17,7 @@ return [
 	'text'      => ['multilang' => ['content'], 'supportsCommon' => true],
 	'image'     => ['multilang' => ['alt'],     'supportsCommon' => true],
 	'button'    => ['multilang' => ['label'],   'supportsCommon' => true],
+	'icon'      => ['multilang' => [],          'supportsCommon' => true],
 	'raw-html'  => ['multilang' => [],          'supportsCommon' => true],
 	'repeat'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
 	'slider'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],

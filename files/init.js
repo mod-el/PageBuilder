@@ -160,7 +160,7 @@ async function renderComponentNode(node, opts) {
 async function uploadImage(file) {
 	const fd = new FormData();
 	fd.append('upload', file);
-	const res = await fetch(PATH + 'model/PageBuilder/files/upload.php', {
+	const res = await fetch(PATH + 'page-builder/upload', {
 		method: 'POST',
 		credentials: 'include',
 		body: fd,

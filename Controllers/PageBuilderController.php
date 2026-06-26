@@ -16,9 +16,10 @@ use Model\Core\Controller;
  *   POST page-builder/fragments → { "id": "…" }       (body: { name, category, source, doc })
  *   DELETE page-builder/fragments?id=… → { "ok": true }
  *   POST page-builder/render-node  → { "html": "…" }   (body: { node, lang })
+ *   POST page-builder/upload  → { "url": "…" }   (multipart: upload=<file>)
  *
- * Both rely on the admin-path auth posture (same as files/upload.php) — no
- * element/field params are accepted, so neither can be used to dump arbitrary data.
+ * All rely on the admin-path auth posture — no element/field params are accepted,
+ * so none can be used to dump arbitrary data.
  */
 class PageBuilderController extends Controller
 {
@@ -84,6 +85,9 @@ class PageBuilderController extends Controller
 					throw new \Exception('fragment save failed');
 				return ['id' => $id];
 			}
+
+			if ($this->model->getRequest(1) === 'upload')
+				return ['url' => $this->model->_PageBuilder->uploadImage()];
 
 			if ($this->model->getRequest(1) !== 'render-node')
 				return $this->notFound();
