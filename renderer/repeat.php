@@ -1,4 +1,7 @@
 <?php
+
+use Model\PageBuilder\Renderer;
+
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
