@@ -8,13 +8,8 @@ use Model\PageBuilder\Renderer;
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
-// Both libraries render as a class on an <i>: FA needs a style prefix + `fa-<name>`,
-// Bootstrap Icons needs `bi bi-<name>`. The icon is decorative -> aria-hidden.
-$library = $config['library'] ?? 'fontawesome';
-$name = $config['name'] ?? '';
-$cls = $library === 'bootstrap'
-	? 'bi bi-' . $name
-	: ($config['style'] ?? 'fas') . ' fa-' . $name;
+// The icon is just an <i> carrying the author-supplied class. Decorative -> aria-hidden.
+$cls = $config['iconClass'] ?? '';
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
 // Inline sizing/colour, fixed order for byte-parity with the JS render.
 $styleParts = [];
