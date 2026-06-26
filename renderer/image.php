@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
@@ -24,6 +25,9 @@ foreach ([['width', 'width'], ['height', 'height'], ['maxWidth', 'max-width'], [
 	if ($dim !== '')
 		$styleParts[] = $pair[1] . ':' . $dim;
 }
+// Common inline style (border-radius) last — own sizing first, mirror of JS render.
+if ($extraStyles !== '')
+	$styleParts[] = $extraStyles;
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
 // img-fluid caps at container width while keeping intrinsic size.

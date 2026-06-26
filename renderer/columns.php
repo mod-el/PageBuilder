@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 /** @var Renderer $renderer */
 
 $cols = $config['cols'] ?? null;
@@ -16,4 +17,5 @@ for ($i = 0; $i < $n; $i++) {
 	$parts .= '<div class="' . $cls . '">' . $child . '</div>';
 }
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
-echo '<div class="row' . $extra . '">' . $parts . '</div>';
+$styleAttr = $extraStyles !== '' ? ' style="' . Renderer::escapeAttr($extraStyles) . '"' : '';
+echo '<div class="row' . $extra . '"' . $styleAttr . '>' . $parts . '</div>';

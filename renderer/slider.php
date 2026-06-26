@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array    $config */
 /** @var string[] $children */     // per-item slide HTML (one entry per bound data item)
 /** @var string   $extraClasses */
+/** @var string   $extraStyles */
 /** @var string   $nodeId */
 
 // Native Bootstrap 5 carousel. Byte-identical to the JS render() preview output
@@ -13,6 +14,7 @@ use Model\PageBuilder\Renderer;
 // JS/CSS — nothing ships here. Like `repeat`, this is an iterating component, so
 // $children is already the per-item HTML array.
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
+$styleAttr = $extraStyles !== '' ? ' style="' . Renderer::escapeAttr($extraStyles) . '"' : '';
 $id = 'pb-' . Renderer::escapeAttr($nodeId);
 $fade = !empty($config['crossfade']) ? ' carousel-fade' : '';
 
@@ -41,4 +43,4 @@ $controlsHtml = '';
 if ($controls and $n > 0)
 	$controlsHtml = '<button class="carousel-control-prev" type="button" data-bs-target="#' . $id . '" data-bs-slide="prev"><span class="carousel-control-prev-icon" aria-hidden="true"></span><span class="visually-hidden">Precedente</span></button><button class="carousel-control-next" type="button" data-bs-target="#' . $id . '" data-bs-slide="next"><span class="carousel-control-next-icon" aria-hidden="true"></span><span class="visually-hidden">Successivo</span></button>';
 
-echo '<div id="' . $id . '" class="carousel slide' . $fade . $extra . '"' . $ride . '>' . $indicatorsHtml . '<div class="carousel-inner">' . $items . '</div>' . $controlsHtml . '</div>';
+echo '<div id="' . $id . '" class="carousel slide' . $fade . $extra . '"' . $ride . $styleAttr . '>' . $indicatorsHtml . '<div class="carousel-inner">' . $items . '</div>' . $controlsHtml . '</div>';

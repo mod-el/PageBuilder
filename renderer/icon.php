@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
@@ -18,6 +19,9 @@ if ($size !== '')
 	$styleParts[] = 'font-size:' . $size;
 if (!empty($config['color']))
 	$styleParts[] = 'color:' . $config['color'];
+// Common inline style (border-radius) last — own sizing/colour first (mirror of JS).
+if ($extraStyles !== '')
+	$styleParts[] = $extraStyles;
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
 echo '<i class="' . Renderer::escapeAttr($cls) . $extra . '" aria-hidden="true"' . $styleAttr . '></i>';

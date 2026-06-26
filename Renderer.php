@@ -250,11 +250,15 @@ class Renderer
 			// N is the bindable `count` config — a literal or bound to a scope field.
 			// Mirror of the JS walk (src/core/editor.js) — preview output is identical.
 			$n = $this->resolveRepeatCount($rawConfig, $scope, $lang);
+			$ownId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
 			for ($i = 0; $i < $n; $i++) {
+				// Per-iteration nodeIdPrefix so a nested slider's carousel id stays
+				// unique across copies (mirror of the JS walk in src/core/editor.js).
+				$prefix = $nodeIdPrefix . $ownId . '-' . $i . '-';
 				$buf = '';
 				foreach ($kids as $child) {
 					if (is_array($child))
-						$buf .= $this->renderNode($child, $lang, $scope, $childItems, $fragmentStack, $nodeIdPrefix);
+						$buf .= $this->renderNode($child, $lang, $scope, $childItems, $fragmentStack, $prefix);
 				}
 				$children[] = $buf;
 			}
@@ -263,13 +267,19 @@ class Renderer
 				// Data-driven: render the authored group once per bound (own binding)
 				// or inherited (ancestor iterator) item.
 				$list = $boundList !== null ? $boundList : $items;
+				$ownId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
+				$i = 0;
 				foreach ($list as $item) {
+					// Per-iteration nodeIdPrefix so a nested slider's carousel id stays
+					// unique across copies (mirror of the JS walk in src/core/editor.js).
+					$prefix = $nodeIdPrefix . $ownId . '-' . $i . '-';
 					$buf = '';
 					foreach ($kids as $child) {
 						if (is_array($child))
-							$buf .= $this->renderNode($child, $lang, $item, $list, $fragmentStack, $nodeIdPrefix);
+							$buf .= $this->renderNode($child, $lang, $item, $list, $fragmentStack, $prefix);
 					}
 					$children[] = $buf;
+					$i++;
 				}
 			} else {
 				// Hand-picked fallback: no binding on this node and no inherited list,
@@ -290,14 +300,18 @@ class Renderer
 
 		$config = $this->resolveMultilang($rawConfig, $meta['multilang'] ?? [], $lang);
 		$extraClasses = $supportsCommon ? self::computeExtraClasses($rawConfig) : '';
+		// Inline-style counterpart of $extraClasses (currently the common
+		// border-radius); the template merges it into its root `style` (own style
+		// first, then this). Mirror of JS ctx.extraStyles.
+		$extraStyles = $supportsCommon ? self::computeExtraStyles($rawConfig) : '';
 
 		// Node id exposed to the template as $nodeId (mirror of JS ctx.nodeId); used
 		// to build a unique DOM id, e.g. the slider's Bootstrap carousel target.
 		$nodeId = $nodeIdPrefix . ((isset($node['id']) and is_string($node['id'])) ? $node['id'] : '');
-		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId);
+		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId, $extraStyles);
 	}
 
-	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null, string $nodeId = ''): string
+	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null, string $nodeId = '', string $extraStyles = ''): string
 	{
 		$path = $this->templateMap[$type] ?? ($this->templatesPath . '/' . $type . '.php');
 		if (!file_exists($path))
@@ -312,13 +326,13 @@ class Renderer
 		$resolveField = static function ($field) use ($renderer, $scope, $lang) {
 			return $renderer->resolveField($field, $scope, $lang);
 		};
-		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField, string $nodeId): void {
+		$run = static function (string $__path, array $config, array $children, string $extraClasses, string $lang, $scope, ?array $items, Renderer $renderer, callable $resolveField, string $nodeId, string $extraStyles): void {
 			include $__path;
 		};
 
 		ob_start();
 		try {
-			$run($path, $config, $children, $extraClasses, $lang, $scope, $items, $renderer, $resolveField, $nodeId);
+			$run($path, $config, $children, $extraClasses, $lang, $scope, $items, $renderer, $resolveField, $nodeId, $extraStyles);
 		} catch (\Throwable $e) {
 			ob_end_clean();
 			throw $e;
@@ -453,6 +467,50 @@ class Renderer
 		if ($c !== '')
 			$parts[] = $c;
 		return implode(' ', $parts);
+	}
+
+	// Mirror of _common.js borderRadiusStyle. Resolves the common `borderRadius`
+	// config to an inline `border-radius:…` declaration, or '' when none. px-only.
+	//   - number N (uniform)                              -> `border-radius:${N}px`
+	//   - { topLeft, topRight, bottomRight, bottomLeft }  -> 4-value shorthand
+	//     (per-corner; a missing/<=0 corner is 0)
+	// All-zero / empty / invalid -> ''. Numbers go through (float) so integers
+	// print without a trailing `.0`, matching the JS `${n}` (render parity).
+	public static function borderRadiusStyle(array $config): string
+	{
+		$v = $config['borderRadius'] ?? null;
+		if ($v === null or $v === '')
+			return '';
+		if (is_array($v)) {
+			$corners = [];
+			$allZero = true;
+			foreach (['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as $k) {
+				$n = isset($v[$k]) ? (float)$v[$k] : 0;
+				if (!($n > 0))
+					$n = 0;
+				else
+					$allZero = false;
+				$corners[] = (string)$n . 'px';
+			}
+			return $allZero ? '' : 'border-radius:' . implode(' ', $corners);
+		}
+		if (is_int($v) or is_float($v) or (is_string($v) and is_numeric($v))) {
+			$n = (float)$v;
+			return $n > 0 ? 'border-radius:' . (string)$n . 'px' : '';
+		}
+		return '';
+	}
+
+	// Mirror of _common.js computeExtraStyles. The inline-style counterpart of
+	// computeExtraClasses, passed to templates as $extraStyles (own style first,
+	// then this). Currently just border-radius; extensible hook for more.
+	public static function computeExtraStyles(array $config): string
+	{
+		$parts = [];
+		$br = self::borderRadiusStyle($config);
+		if ($br !== '')
+			$parts[] = $br;
+		return implode(';', $parts);
 	}
 
 	// Mirror of _common.js dropHorizontalMargin. A centered Bootstrap `container`

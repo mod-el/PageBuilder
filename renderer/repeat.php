@@ -5,11 +5,13 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 
 // `repeat` is an iterating component: the renderer has already rendered the
 // authored children once per item, so $children is the per-item HTML array.
 // Byte-identical to the JS render() preview output (render-parity invariant).
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
+$styleAttr = $extraStyles !== '' ? ' style="' . Renderer::escapeAttr($extraStyles) . '"' : '';
 // Flex layout — same controls the container exposes (no `stack` overlay). Class
 // order mirrors the JS render (base → direction → gap → align → extra).
 $directionCls = Renderer::directionClasses($config['direction'] ?? null);
@@ -33,4 +35,4 @@ if (($config['direction'] ?? null) === 'grid') {
 } else {
 	$inner = implode('', $children);
 }
-echo '<div class="pb-repeat ' . $directionCls . $gapPart . $alignPart . $extra . '">' . $inner . '</div>';
+echo '<div class="pb-repeat ' . $directionCls . $gapPart . $alignPart . $extra . '"' . $styleAttr . '>' . $inner . '</div>';

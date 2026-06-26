@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
@@ -16,5 +17,6 @@ $variant = $config['variant'] ?? 'primary';
 $href = Renderer::escapeAttr(isset($bindings['href']) ? $resolveField($bindings['href']) : ($config['href'] ?? '#'));
 $label = Renderer::escapeHtml(isset($bindings['label']) ? $resolveField($bindings['label']) : ($config['label'] ?? ''));
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
+$styleAttr = $extraStyles !== '' ? ' style="' . Renderer::escapeAttr($extraStyles) . '"' : '';
 $newTab = !empty($config['newTab']) ? ' target="_blank" rel="noopener noreferrer"' : '';
-echo '<a class="btn btn-' . $variant . $extra . '" href="' . $href . '"' . $newTab . '>' . $label . '</a>';
+echo '<a class="btn btn-' . $variant . $extra . '" href="' . $href . '"' . $newTab . $styleAttr . '>' . $label . '</a>';

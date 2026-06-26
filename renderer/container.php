@@ -5,6 +5,7 @@ use Model\PageBuilder\Renderer;
 /** @var array  $config */
 /** @var string[] $children */
 /** @var string $extraClasses */
+/** @var string $extraStyles */
 /** @var Renderer $renderer */
 /** @var callable $resolveField */
 
@@ -66,6 +67,9 @@ if ($maxWidth !== '')
 $height = Renderer::dimensionValue($config['height'] ?? null);
 if ($height !== '' and $height !== 'auto')
 	$styleParts[] = 'height:' . $height;
+// Common inline style (border-radius) last — own style first, mirror of JS render.
+if ($extraStyles !== '')
+	$styleParts[] = $extraStyles;
 $style = implode(';', $styleParts);
 $styleAttr = $style !== '' ? ' style="' . Renderer::escapeAttr($style) . '"' : '';
 $containerCls = $maxWidth !== '' ? ' container' : '';
