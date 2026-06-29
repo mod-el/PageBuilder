@@ -113,8 +113,9 @@ function parseComponents(textarea) {
 //
 // A descriptor whose type collides with a builtin is normally skipped (protects the
 // core builtins). The one exception: a builtin that opts in with `overridable:true`
-// (the native `slider`) IS replaced — that's how the model/slider package's `slider`
-// supersedes the native Bootstrap carousel in the editor, mirroring the PHP side.
+// (the native `slider`) IS replaced, mirroring the PHP side. This is a generic
+// capability — the model/slider package now ships as its own `carousel` type and
+// coexists with the native slider instead of overriding it.
 function registerCustomComponents(list) {
 	if (!list || typeof window.PageBuilder.registerComponent !== 'function')
 		return;
