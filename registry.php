@@ -22,4 +22,6 @@ return [
 	'repeat'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
 	'slider'    => ['multilang' => [],          'supportsCommon' => true, 'iterates' => true],
 	'fragment'  => ['multilang' => [],          'supportsCommon' => true],
+	'switch'       => ['multilang' => [],       'supportsCommon' => true],
+	'switch-space' => ['multilang' => [],       'supportsCommon' => false],
 ];
