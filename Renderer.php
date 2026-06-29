@@ -550,23 +550,143 @@ class Renderer
 
 	// Mirror of _common.js resolveChips. Replaces each
 	// `<span … data-pb-field="KEY" …>…</span>` chip with a clean
-	// `<span data-pb-field="KEY">resolved</span>`: the inner becomes
-	// chipEscape($resolve(KEY)) and editor-only attributes (the editor adds
-	// contenteditable="false" to make the chip atomic) are dropped. The opening
-	// tag is RECONSTRUCTED from the captured KEY so JS and PHP stay byte-identical.
-	// $resolve returns the unescaped value ('' when no provider/scope). Static-
-	// only fast path: content with no chip is returned untouched.
+	// `<span data-pb-field="KEY"[ data-pb-format="SPEC"]>resolved</span>`: the inner
+	// becomes chipEscape(formatChipValue($resolve(KEY), SPEC)). The optional
+	// data-pb-format attribute is preserved; editor-only attributes (the editor adds
+	// contenteditable="false" to make the chip atomic) are dropped. The opening tag
+	// is RECONSTRUCTED from the captured KEY (+SPEC) so JS and PHP stay byte-identical;
+	// the whole attribute run is captured then field/format sub-extracted (order-
+	// independent). $resolve returns the unescaped value ('' when no provider/scope).
+	// Static-only fast path: content with no chip is returned untouched.
 	public static function resolveChips(string $html, callable $resolve): string
 	{
 		if (strpos($html, 'data-pb-field=') === false)
 			return $html;
 		return preg_replace_callback(
-			'/<span\b[^>]*?\bdata-pb-field="([^"]*)"[^>]*>(.*?)<\/span>/s',
+			'/<span\b([^>]*\bdata-pb-field="[^"]*"[^>]*)>(.*?)<\/span>/s',
 			static function (array $m) use ($resolve): string {
-				return '<span data-pb-field="' . $m[1] . '">' . self::chipEscape($resolve($m[1])) . '</span>';
+				$attrs = $m[1];
+				if (!preg_match('/\bdata-pb-field="([^"]*)"/', $attrs, $km))
+					return $m[0];
+				$key = $km[1];
+				$fmt = preg_match('/\bdata-pb-format="([^"]*)"/', $attrs, $fm) ? $fm[1] : '';
+				$fmtAttr = $fmt !== '' ? ' data-pb-format="' . $fmt . '"' : '';
+				return '<span data-pb-field="' . $key . '"' . $fmtAttr . '>' . self::chipEscape(self::formatChipValue($resolve($key), $fmt)) . '</span>';
 			},
 			$html
 		);
+	}
+
+	// Mirror of _common.js formatChipValue. Apply a per-chip format SPEC (the
+	// optional data-pb-format attribute) to a resolved field value, before
+	// chipEscape. SPEC is self-describing:
+	//   number:  n|<decimals>|<decimalSep>|<thousandsSep>  (decimals empty = keep
+	//            the source value's own decimal places, no rounding)
+	//   date:    d|<phpDateFormat>
+	// The date payload is everything after the FIRST `|`. Empty/unknown SPEC, or a
+	// value that isn't a number / parseable date, yields the value unchanged.
+	public static function formatChipValue($value, string $spec)
+	{
+		if ($spec === '')
+			return $value;
+		$sep = strpos($spec, '|');
+		if ($sep === false)
+			return $value;
+		$kind = substr($spec, 0, $sep);
+		$rest = substr($spec, $sep + 1);
+		if ($kind === 'n') {
+			$p = explode('|', $rest);
+			return self::pbNumberFormat($value, $p[0] ?? '', $p[1] ?? '', $p[2] ?? '');
+		}
+		if ($kind === 'd')
+			return self::pbDateFormat($value, $rest);
+		return $value;
+	}
+
+	// Mirror of _common.js pbNumberFormat. `decimals` is a STRING — '' keeps the
+	// source value's own decimal count (no rounding); otherwise a non-negative
+	// integer count. Non-numeric input returned unchanged. Delegates to native
+	// number_format (which rounds half away from zero — the JS mirror replicates it).
+	public static function pbNumberFormat($value, string $decimals, string $decSep, string $thouSep)
+	{
+		$raw = trim((string)($value ?? ''));
+		if ($raw === '' or !preg_match('/^[+-]?(\d+(\.\d*)?|\.\d+)$/', $raw))
+			return $value;
+		if ($decimals === '') {
+			$dot = strpos($raw, '.');
+			$prec = $dot === false ? 0 : strlen($raw) - $dot - 1;
+		} else {
+			$prec = (int)$decimals;
+			if ($prec < 0)
+				$prec = 0;
+		}
+		return number_format((float)$raw, $prec, $decSep, $thouSep);
+	}
+
+	// Mirror of _common.js pbDateFormat. Parse a date/datetime/time value by REGEX
+	// into Y/m/d (+ optional H:i:s) components — no DateTime, no timezone math — so
+	// JS and PHP emit identical output. Supported subset: d j m n Y y H G h g i s A
+	// a F M D l N w; `\` escapes the next char; unsupported chars echo literally.
+	// Unparseable value returned unchanged.
+	public static function pbDateFormat($value, string $fmt)
+	{
+		$raw = trim((string)($value ?? ''));
+		if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/', $raw, $m))
+			return $value;
+		$Y = (int)$m[1];
+		$mon = (int)$m[2];
+		$d = (int)$m[3];
+		$H = isset($m[4]) ? (int)$m[4] : 0;
+		$I = isset($m[5]) ? (int)$m[5] : 0;
+		$S = isset($m[6]) ? (int)$m[6] : 0;
+		$w = self::pbWeekday($Y, $mon, $d);
+		$h12 = $H % 12 === 0 ? 12 : $H % 12;
+		$months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+		$days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		$pad = static fn(int $n): string => $n < 10 ? '0' . $n : (string)$n;
+		$out = '';
+		$len = strlen($fmt);
+		for ($i = 0; $i < $len; $i++) {
+			$c = $fmt[$i];
+			if ($c === '\\') {
+				$i++;
+				if ($i < $len)
+					$out .= $fmt[$i];
+				continue;
+			}
+			switch ($c) {
+				case 'd': $out .= $pad($d); break;
+				case 'j': $out .= $d; break;
+				case 'm': $out .= $pad($mon); break;
+				case 'n': $out .= $mon; break;
+				case 'Y': $out .= $Y; break;
+				case 'y': $out .= $pad($Y % 100); break;
+				case 'H': $out .= $pad($H); break;
+				case 'G': $out .= $H; break;
+				case 'h': $out .= $pad($h12); break;
+				case 'g': $out .= $h12; break;
+				case 'i': $out .= $pad($I); break;
+				case 's': $out .= $pad($S); break;
+				case 'A': $out .= $H < 12 ? 'AM' : 'PM'; break;
+				case 'a': $out .= $H < 12 ? 'am' : 'pm'; break;
+				case 'F': $out .= $months[$mon - 1] ?? ''; break;
+				case 'M': $out .= substr($months[$mon - 1] ?? '', 0, 3); break;
+				case 'l': $out .= $days[$w]; break;
+				case 'D': $out .= substr($days[$w], 0, 3); break;
+				case 'N': $out .= $w === 0 ? 7 : $w; break;
+				case 'w': $out .= $w; break;
+				default: $out .= $c;
+			}
+		}
+		return $out;
+	}
+
+	// Sakamoto's algorithm — 0 = Sunday. Deterministic, mirror of _common.js pbWeekday.
+	private static function pbWeekday(int $y, int $m, int $d): int
+	{
+		$t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+		$yy = $m < 3 ? $y - 1 : $y;
+		return (($yy + intdiv($yy, 4) - intdiv($yy, 100) + intdiv($yy, 400) + $t[$m - 1] + $d) % 7 + 7) % 7;
 	}
 
 	public static function directionClasses(?string $direction): string

@@ -27,8 +27,10 @@ use Model\Core\Core;
  *   'custom' => ['retriever' => fn(array $filters, ?int $limit) => […list…], 'fields' => […]]  // fields required; filters include `q` for search and `id` for resolveItem
  *
  * Field descriptor shape (editor contract): {key, label, type, source?, internal?}
- * where type ∈ {text, number, image, relation}; a relation carries the target
- * source key. `internal` marks a synthesized relation-target source (see below) —
+ * where type ∈ {text, number, image, date, datetime, time, relation}; a relation
+ * carries the target source key. date/datetime/time are plain scalars (raw value),
+ * surfaced distinctly so the editor can offer date-format options on chips.
+ * `internal` marks a synthesized relation-target source (see below) —
  * editor-only, never serialized, hidden from the top-level source pickers.
  *
  * Relations are introspected from the ORM element even when their target element
@@ -628,23 +630,34 @@ class Sources
 					return null;
 				case 'number':
 					return 'number';
+				// Surfaced distinctly so the chip editor can offer date-format options.
+				case 'date':
+					return 'date';
+				case 'time':
+					return 'time';
+				case 'datetime':
+					return 'datetime';
 				case 'text':
 				case 'textarea':
 				case 'ckeditor':
 				case 'select':
 				case 'radio':
-				case 'date':
-				case 'time':
-				case 'datetime':
 				case 'color':
 					return 'text';
 			}
 		}
 
 		if ($columnType !== null) {
+			$col = strtolower($columnType);
 			$numeric = ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint', 'decimal', 'float', 'double'];
-			if (in_array(strtolower($columnType), $numeric, true))
+			if (in_array($col, $numeric, true))
 				return 'number';
+			if ($col === 'date')
+				return 'date';
+			if ($col === 'time')
+				return 'time';
+			if ($col === 'datetime' or $col === 'timestamp')
+				return 'datetime';
 			return 'text';
 		}
 
