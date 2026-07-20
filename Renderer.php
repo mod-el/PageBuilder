@@ -308,7 +308,14 @@ class Renderer
 		// Node id exposed to the template as $nodeId (mirror of JS ctx.nodeId); used
 		// to build a unique DOM id, e.g. the slider's Bootstrap carousel target.
 		$nodeId = $nodeIdPrefix . ((isset($node['id']) and is_string($node['id'])) ? $node['id'] : '');
-		return $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId, $extraStyles);
+		$html = $this->loadTemplate($type, $config, $children, $extraClasses, $lang, $scope, $childItems, $nodeId, $extraStyles);
+		// Common `hiddenOn` (responsive hiding): prepend the constant hide rules so
+		// the `pb-hide-*` classes (on the root via $extraClasses) take effect.
+		// Mirror of the JS preview walk; the editor never emits the block, so the
+		// canvas always shows the node. Duplicate emissions are harmless.
+		if ($supportsCommon and self::hiddenOnClasses($rawConfig) !== '')
+			return self::HIDE_BREAKPOINT_STYLE . $html;
+		return $html;
 	}
 
 	private function loadTemplate(string $type, array $config, array $children, string $extraClasses, string $lang, $scope = null, ?array $items = null, string $nodeId = '', string $extraStyles = ''): string
@@ -457,15 +464,49 @@ class Renderer
 		return false;
 	}
 
+	// Per-breakpoint hide rules for the common `hiddenOn` config — mirror of
+	// _common.js HIDE_BREAKPOINT_STYLE (byte-identical). Hide-only, closed-range
+	// media queries (Bootstrap 5 ranges): no "re-show" utility to pick, so the
+	// rules work over ANY root display type. Prepended by renderNode before a
+	// node carrying `hiddenOn`; duplicate emissions are harmless.
+	public const HIDE_BREAKPOINT_STYLE = '<style>'
+		. '@media (max-width:575.98px){.pb-hide-xs{display:none!important}}'
+		. '@media (min-width:576px) and (max-width:767.98px){.pb-hide-sm{display:none!important}}'
+		. '@media (min-width:768px) and (max-width:991.98px){.pb-hide-md{display:none!important}}'
+		. '@media (min-width:992px) and (max-width:1199.98px){.pb-hide-lg{display:none!important}}'
+		. '@media (min-width:1200px) and (max-width:1399.98px){.pb-hide-xl{display:none!important}}'
+		. '@media (min-width:1400px){.pb-hide-xxl{display:none!important}}'
+		. '</style>';
+
+	// `pb-hide-<bp>` marker classes for the common `hiddenOn` config — emitted in
+	// BREAKPOINTS order regardless of stored order; unknown codes / non-array
+	// values are ignored. Mirror of _common.js hiddenOnClasses.
+	public static function hiddenOnClasses(array $config): string
+	{
+		$hidden = $config['hiddenOn'] ?? null;
+		if (!is_array($hidden))
+			return '';
+		$parts = [];
+		foreach (self::BREAKPOINTS as $bp) {
+			if (in_array($bp, $hidden, true))
+				$parts[] = 'pb-hide-' . $bp;
+		}
+		return implode(' ', $parts);
+	}
+
+	// Fixed part order (margin → class → hide) for render parity.
 	public static function computeExtraClasses(array $config): string
 	{
 		$m = self::spacingClasses($config['margin'] ?? null, 'm');
 		$c = (isset($config['class']) && is_string($config['class'])) ? trim($config['class']) : '';
+		$h = self::hiddenOnClasses($config);
 		$parts = [];
 		if ($m !== '')
 			$parts[] = $m;
 		if ($c !== '')
 			$parts[] = $c;
+		if ($h !== '')
+			$parts[] = $h;
 		return implode(' ', $parts);
 	}
 
@@ -726,6 +767,27 @@ class Renderer
 		if (count($pattern) === 0)
 			return 'col';
 		return 'col-' . $pattern[$i % count($pattern)];
+	}
+
+	// Full col-class string for cell $i from the (possibly per-breakpoint)
+	// columns spec — mirror of _common.js gridCellClasses. A scalar spec is
+	// exactly parseGridPattern + gridColClass (legacy path, byte-identical); a
+	// {xs,…} map unions per-breakpoint classes, each breakpoint cycling its OWN
+	// pattern by cell index; blank/invalid non-xs patterns are skipped (inherit
+	// from the smaller breakpoint via Bootstrap's mobile-first cascade).
+	public static function gridCellClasses($columns, int $i): string
+	{
+		if (!is_array($columns))
+			return self::gridColClass(self::parseGridPattern($columns), $i);
+		$parts = [self::gridColClass(self::parseGridPattern($columns['xs'] ?? ''), $i)];
+		foreach (self::BREAKPOINTS as $bp) {
+			if ($bp === 'xs')
+				continue;
+			$pattern = self::parseGridPattern($columns[$bp] ?? '');
+			if (count($pattern) > 0)
+				$parts[] = 'col-' . $bp . '-' . $pattern[$i % count($pattern)];
+		}
+		return implode(' ', $parts);
 	}
 
 	public static function colCount($cols): int
