@@ -29,9 +29,10 @@ class ModelDataProvider implements DataProvider
 	public function query(array $binding, array $params, $scope, string $lang): array
 	{
 		$limit = (isset($params['limit']) and is_numeric($params['limit'])) ? (int)$params['limit'] : null;
+		$filters = (isset($params['filters']) and is_array($params['filters'])) ? $params['filters'] : [];
 
 		if (isset($binding['source']) and is_string($binding['source']))
-			return $this->querySource($binding['source'], $limit);
+			return $this->querySource($binding['source'], $limit, $filters);
 
 		if (isset($binding['relation']) and is_string($binding['relation']))
 			return $this->queryRelation($scope, $binding['relation'], $limit);
@@ -121,20 +122,30 @@ class ModelDataProvider implements DataProvider
 	}
 
 	// Resolve a {source} binding to a list of elements (or a retriever's items).
-	private function querySource(string $key, ?int $limit): array
+	// Author filters (binding params.filters) are validated against the source's
+	// whitelist first — a retriever receives them in its first argument and applies
+	// them itself; the ORM path AND-composes them with the config `where` as
+	// numeric-keyed [field, '=', value] triples, which can never clobber a
+	// developer's assoc where keys (conflicting conditions just yield no rows).
+	private function querySource(string $key, ?int $limit, array $filters = []): array
 	{
 		if (!isset($this->sources[$key]))
 			return [];
 		$src = $this->sources[$key];
+		$filters = Sources::validFilters($src, $filters);
 
 		if (isset($src['retriever']) and is_callable($src['retriever'])) {
-			$items = $src['retriever']([], $limit); // First argument is reserved for filters
+			$items = $src['retriever']($filters, $limit);
 			$items = $this->toList($items);
 			return ($limit !== null) ? array_slice($items, 0, max(0, $limit)) : $items;
 		}
 
 		if (!isset($src['element']))
 			return [];
+
+		$where = $src['where'] ?? [];
+		foreach ($filters as $field => $value)
+			$where[] = [$field, '=', $value];
 
 		$options = ['stream' => false];
 		if (!empty($src['joins']))
@@ -145,7 +156,7 @@ class ModelDataProvider implements DataProvider
 			$options['limit'] = max(0, $limit);
 
 		try {
-			$items = $this->model->_ORM->all($src['element'], $src['where'] ?? [], $options);
+			$items = $this->model->_ORM->all($src['element'], $where, $options);
 		} catch (\Throwable $e) {
 			return [];
 		}

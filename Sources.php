@@ -23,8 +23,21 @@ use Model\Core\Core;
  * never serialized into the document and never seen by the public renderer.
  *
  * Source config shape (keyed by an arbitrary source key referenced by bindings):
- *   'hotels' => ['element' => 'TravioService', 'where' => […], 'joins' => […], 'fields' => […], 'searchable' => true, 'labelField' => ['name']]
- *   'custom' => ['retriever' => fn(array $filters, ?int $limit) => […list…], 'fields' => […]]  // fields required; filters include `q` for search and `id` for resolveItem
+ *   'hotels' => ['element' => 'TravioService', 'where' => […], 'joins' => […], 'fields' => […], 'searchable' => true, 'labelField' => ['name'], 'filters' => […]]
+ *   'custom' => ['retriever' => fn(array $filters, ?int $limit) => […list…], 'fields' => […]]  // fields required; filters include `q` for search, `id` for resolveItem, and any author list-filters (see below)
+ *
+ * `filters` whitelists the fields an author may equality-filter a list binding on
+ * (docs/dynamic-data.md §4.2): each entry is either a bare field key ('stars') or
+ * key => ['label' => …, 'options' => [value => label], 'source' => 'destinations']
+ * (options turn the editor input into a dropdown; `source` links the filter to
+ * another declared source — a conceptual foreign key — so the editor offers that
+ * source's item picker and stores the picked id; the key must then be the scalar
+ * FK column holding that id. `source` wins over `options`; an unknown source key
+ * is dropped). Normalized to key => ['label' => ?string, 'source' => ?string,
+ * 'options' => ?array]. Author-picked values reach ModelDataProvider as binding
+ * params.filters, are validated against this whitelist (validFilters) and
+ * AND-composed with the source's `where`; retriever sources receive them in
+ * their first argument and are responsible for applying them.
  *
  * Field descriptor shape (editor contract): {key, label, type, source?, internal?}
  * where type ∈ {text, number, image, date, datetime, time, relation}; a relation
@@ -68,26 +81,103 @@ class Sources
 	 */
 	public static function normalize(array $sources): array
 	{
+		// First pass: the surviving source keys, so a filter's `source` link can be
+		// validated regardless of declaration order (forward references work).
+		$validKeys = [];
+		foreach ($sources as $key => $src) {
+			if (self::isValidSource($key, $src))
+				$validKeys[] = $key;
+		}
+
 		$out = [];
 		foreach ($sources as $key => $src) {
-			if (!is_string($key) or $key === '' or !is_array($src))
+			if (!self::isValidSource($key, $src))
 				continue;
-
-			$hasElement = (isset($src['element']) and is_string($src['element']) and $src['element'] !== '');
-			$hasRetriever = (isset($src['retriever']) and is_callable($src['retriever']));
-			if (!$hasElement and !$hasRetriever)
-				continue;
-			if ($hasRetriever and !$hasElement and (!isset($src['fields']) or !is_array($src['fields'])))
-				continue; // a retriever source can't be introspected — fields are mandatory
 
 			$src['where'] = (isset($src['where']) and is_array($src['where'])) ? $src['where'] : [];
 			$src['joins'] = (isset($src['joins']) and is_array($src['joins'])) ? $src['joins'] : [];
 			$src['searchable'] = !empty($src['searchable']);
 			$src['labelField'] = self::normalizeLabelField($src['labelField'] ?? null);
+			$src['filters'] = self::normalizeFilters($src['filters'] ?? null, $validKeys);
 			if (!isset($src['label']) or !is_string($src['label']))
 				$src['label'] = ucfirst($key);
 
 			$out[$key] = $src;
+		}
+		return $out;
+	}
+
+	// A valid source has either an `element` (ORM class) or a `retriever`
+	// (callable); a retriever-backed source must declare `fields` (nothing to
+	// introspect). Pure — no model access.
+	private static function isValidSource($key, $src): bool
+	{
+		if (!is_string($key) or $key === '' or !is_array($src))
+			return false;
+		$hasElement = (isset($src['element']) and is_string($src['element']) and $src['element'] !== '');
+		$hasRetriever = (isset($src['retriever']) and is_callable($src['retriever']));
+		if (!$hasElement and !$hasRetriever)
+			return false;
+		if ($hasRetriever and !$hasElement and (!isset($src['fields']) or !is_array($src['fields'])))
+			return false;
+		return true;
+	}
+
+	/**
+	 * Normalize the `filters` whitelist to key => ['label' => ?string, 'source' =>
+	 * ?string, 'options' => ?array (value => label)]. Accepts bare field keys
+	 * ('stars') or key => opts entries; malformed entries dropped. A `source` link
+	 * (the filter's values are the ids of another declared source — a conceptual
+	 * foreign key) is kept only when it names a key in $sourceKeys and WINS over
+	 * `options` (mutually exclusive; an invalid link is dropped and the entry
+	 * degrades to its options/typed-input behavior). Pure — no model access.
+	 */
+	private static function normalizeFilters($filters, array $sourceKeys = []): array
+	{
+		if (!is_array($filters))
+			return [];
+		$out = [];
+		foreach ($filters as $key => $opts) {
+			if (is_int($key) and is_string($opts) and $opts !== '') {
+				$out[$opts] = [];
+				continue;
+			}
+			if (!is_string($key) or $key === '' or !is_array($opts))
+				continue;
+			$entry = [];
+			if (isset($opts['label']) and is_string($opts['label']) and $opts['label'] !== '')
+				$entry['label'] = $opts['label'];
+			if (isset($opts['source']) and is_string($opts['source']) and in_array($opts['source'], $sourceKeys, true))
+				$entry['source'] = $opts['source'];
+			if (!isset($entry['source']) and isset($opts['options']) and is_array($opts['options'])) {
+				$options = [];
+				foreach ($opts['options'] as $value => $label) {
+					if (is_scalar($value) and is_scalar($label))
+						$options[$value] = (string)$label;
+				}
+				if (!empty($options))
+					$entry['options'] = $options;
+			}
+			$out[$key] = $entry;
+		}
+		return $out;
+	}
+
+	/**
+	 * The subset of author-picked filters allowed by the source's whitelist: keys
+	 * must be whitelisted plain field names (never `_url` — synthetic, not a
+	 * column), values scalar. This is the ONLY gate between document content and
+	 * the ORM where clause — never widen it to raw keys. Expects a normalized
+	 * source entry. Pure — no model access.
+	 */
+	public static function validFilters(array $src, array $filters): array
+	{
+		$whitelist = (isset($src['filters']) and is_array($src['filters'])) ? $src['filters'] : [];
+		$out = [];
+		foreach ($filters as $key => $value) {
+			if (!is_string($key) or $key === '_url' or !isset($whitelist[$key]) or !is_scalar($value))
+				continue;
+			$out[$key] = $value;
 		}
 		return $out;
 	}
@@ -128,6 +218,9 @@ class Sources
 				$entry['searchable'] = true;
 			if (!empty($src['labelField']))
 				$entry['labelField'] = count($src['labelField']) === 1 ? $src['labelField'][0] : $src['labelField'];
+			$filters = $this->filterDescriptors($src, $fields);
+			if (!empty($filters))
+				$entry['filters'] = $filters;
 			$out[] = $entry;
 		}
 
@@ -136,6 +229,60 @@ class Sources
 		foreach ($synth as $synthKey => $desc) {
 			if (!isset($existing[$synthKey]))
 				$out[] = $desc;
+		}
+		return $out;
+	}
+
+	/**
+	 * Build the editor-facing filter descriptors for one source: [{key, label,
+	 * type, source?, options?}]. Label falls back to the field descriptor's, then a
+	 * humanized key; type comes from the field descriptor (default text). Keys
+	 * whose field is a relation/image, or the synthetic `_url`, are dropped —
+	 * equality on them is meaningless (and `_url` is not a column) — UNLESS the
+	 * filter links a `source`: the key is then the scalar FK column holding that
+	 * source's id (introspection hides FK columns, so the field is usually absent
+	 * or shadowed by a same-named relation), so the drop is bypassed and a missing/
+	 * relation/image type falls back to number (ModEl ids; the editor keeps
+	 * non-numeric ids as strings). `source` and `options` never coexist (normalize).
+	 */
+	private function filterDescriptors(array $src, array $fields): array
+	{
+		if (empty($src['filters']))
+			return [];
+
+		$fieldByKey = [];
+		foreach ($fields as $f)
+			$fieldByKey[$f['key']] = $f;
+
+		$out = [];
+		foreach ($src['filters'] as $key => $opts) {
+			if ($key === '_url')
+				continue;
+			$field = $fieldByKey[$key] ?? null;
+			$type = $field['type'] ?? 'text';
+			$linked = $opts['source'] ?? null;
+			if ($type === 'relation' or $type === 'image') {
+				if ($linked === null)
+					continue;
+				$type = 'number';
+			}
+			if ($linked !== null and $field === null)
+				$type = 'number';
+
+			$entry = [
+				'key' => $key,
+				'label' => $opts['label'] ?? $field['label'] ?? self::humanize($key),
+				'type' => $type,
+			];
+			if ($linked !== null)
+				$entry['source'] = $linked;
+			if (!empty($opts['options'])) {
+				$options = [];
+				foreach ($opts['options'] as $value => $label)
+					$options[] = ['value' => $value, 'label' => $label];
+				$entry['options'] = $options;
+			}
+			$out[] = $entry;
 		}
 		return $out;
 	}
@@ -162,9 +309,29 @@ class Sources
 		$out = [];
 		foreach ($sources as $key => $src) {
 			$items = $provider->query(['source' => $key], ['limit' => $perSource], null, $langs[0]);
+
+			// Source-linked filter keys are FK columns that introspection hides from
+			// the field descriptors (foreign_keys → skipped), yet the editor preview
+			// equality-matches sample rows on them — inject the raw scalar alongside
+			// the shaped fields (a same-named expanded relation, if any, wins).
+			$linkedFilterKeys = [];
+			foreach ($src['filters'] as $fk => $fopts) {
+				if (isset($fopts['source']))
+					$linkedFilterKeys[] = $fk;
+			}
+
 			$shaped = [];
-			foreach ($items as $item)
-				$shaped[] = $this->shapeItem($item, $descByKey[$key] ?? [], $langs, $provider, $descByKey, 1);
+			foreach ($items as $item) {
+				$row = $this->shapeItem($item, $descByKey[$key] ?? [], $langs, $provider, $descByKey, 1);
+				foreach ($linkedFilterKeys as $fk) {
+					if (array_key_exists($fk, $row))
+						continue;
+					$val = $provider->resolve($item, $fk, $langs[0]);
+					if (is_scalar($val))
+						$row[$fk] = $val;
+				}
+				$shaped[] = $row;
+			}
 			$out[$key] = $shaped;
 		}
 		return $out;

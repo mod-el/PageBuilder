@@ -13,7 +13,10 @@ interface DataProvider
 	 * Resolve a binding to a list of items.
 	 *
 	 * @param array $binding {source,params} | {relation} | {query}
-	 * @param array $params  the resolved params map (the framework passes binding.params)
+	 * @param array $params  the resolved params map (the framework passes
+	 *                       binding.params): may carry `limit` (int) and `filters`
+	 *                       ({field: scalar} equality map — the provider validates
+	 *                       keys against its own per-source whitelist)
 	 * @param mixed $scope   the current item (null at root)
 	 * @param string $lang   active language
 	 * @return array         list of items (possibly empty; never null)
