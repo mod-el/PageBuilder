@@ -457,7 +457,10 @@ class Sources
 
 	// Shape one item against its field descriptors. $depth limits relation
 	// expansion (1 = expand relations once, then stop).
-	private function shapeItem(\Model\ORM\Element|array $item, array $fields, array $langs, ModelDataProvider $provider, array $descByKey, int $depth): array
+	// $item is untyped on purpose: ModelDataProvider accepts any array / ArrayAccess /
+	// `->id` object a custom `retriever` returns, and shapeItem must not be stricter
+	// (a TypeError here breaks sample-data, search, list-items and resolve-items).
+	private function shapeItem($item, array $fields, array $langs, ModelDataProvider $provider, array $descByKey, int $depth): array
 	{
 		$row = ['id' => $this->itemId($item)];
 		foreach ($fields as $f) {
@@ -746,15 +749,20 @@ class Sources
 		return $value === null ? '' : (string)$value;
 	}
 
-	private function itemId(\Model\ORM\Element|array $item)
+	// Mirror of ModelDataProvider::itemId (same item shapes accepted).
+	private function itemId($item)
 	{
 		if (is_array($item))
 			return $item['id'] ?? null;
-		try {
-			return $item['id'];
-		} catch (\Throwable $e) {
-			return null;
+		if (is_object($item) and method_exists($item, 'offsetGet')) {
+			try {
+				return $item['id'];
+			} catch (\Throwable $e) {
+			}
 		}
+		if (is_object($item) and isset($item->id))
+			return $item->id;
+		return null;
 	}
 
 	private function idMatches($id, string $q): bool

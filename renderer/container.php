@@ -79,7 +79,9 @@ $effectiveExtra = $maxWidth !== '' ? Renderer::dropHorizontalMargin($extraClasse
 $extra = $effectiveExtra !== '' ? ' ' . $effectiveExtra : '';
 // In stack mode each child is wrapped in a layer pinned to the grid cell so all
 // layers overlap (mirror of the JS container render).
-if ($isStack) {
+// An empty stack emits nothing (no passthrough style, no layers) — mirror of the
+// JS render, whose `children.length ? layout : ''` guards the whole overlay.
+if ($isStack and count($children)) {
 	// Each layer gets a concrete, DOM-order z-index + position:relative so it forms
 	// its OWN stacking context — otherwise a positioned descendant (e.g. a Bootstrap
 	// .carousel) paints above a later layer's static content (mirror of JS render).

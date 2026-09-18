@@ -69,7 +69,7 @@ class Renderer
 	// ref — a {relation,index,field} array (leaf binding) or a "@rel:idx:field"
 	// token (chip). A nested ref queries the relation, picks one element, then
 	// reads its sub-field; out-of-range / empty list → ''. Mirror of the JS
-	// resolveField closure (src/core/editor.js renderNode).
+	// resolveField closure (src/core/render.js renderNode).
 	public function resolveField($field, $scope, string $lang)
 	{
 		if ($this->data === null or $scope === null)
@@ -135,13 +135,13 @@ class Renderer
 	}
 
 	// Upper bound on count-mode repetitions, so a bad bound value can't generate
-	// unbounded DOM. Mirror of editor.js REPEAT_COUNT_CAP (render parity).
+	// unbounded DOM. Mirror of render.js REPEAT_COUNT_CAP (render parity).
 	private const REPEAT_COUNT_CAP = 200;
 
 	// Resolve the repetition count for an iterating node in count mode: the bound
 	// `count` field (config.bindings.count → scope field) wins over the literal
 	// config.count. Non-numeric / empty / negative → 0; clamped to the cap. Mirror
-	// of editor.js resolveRepeatCount (render parity). The literal falls back to 3 —
+	// of render.js resolveRepeatCount (render parity). The literal falls back to 3 —
 	// the repeat `count` schema default — because canonical JSON omits an untouched
 	// default, so the JS walk (via resolveConfig) and this side must agree on it.
 	private function resolveRepeatCount(array $rawConfig, $scope, string $lang): int
@@ -188,7 +188,7 @@ class Renderer
 	// an `iterates` component renders its authored children once per item (scope =
 	// item), any other bound node exposes the list to its subtree as $items, and
 	// an unbound node inherits the nearest ancestor's list. Mirror of the JS
-	// renderNode walk (src/core/editor.js) — preview output stays byte-identical.
+	// renderNode walk (src/core/render.js) — preview output stays byte-identical.
 	private function renderNode(array $node, string $lang, $scope = null, ?array $items = null, array $fragmentStack = [], string $nodeIdPrefix = ''): string
 	{
 		$type = (isset($node['type']) && is_string($node['type'])) ? $node['type'] : '';
@@ -217,9 +217,11 @@ class Renderer
 
 		// Resolve a common binding to a list (no provider → empty). childItems is
 		// the node's own list if bound, else the inherited ancestor list. A binding
-		// naming no source/relation/query is treated as absent (inherit, not empty).
+		// naming no source/relation/query/expression is treated as absent (inherit, not
+		// empty). An {expression} binding (expression hosts) goes to the provider,
+		// which returns [] when it does not know the form — ModelDataProvider does.
 		$binding = ($itemRef === null and $supportsCommon and isset($rawConfig['binding']) and is_array($rawConfig['binding'])) ? $rawConfig['binding'] : null;
-		if ($binding !== null and !(isset($binding['source']) or isset($binding['relation']) or isset($binding['query'])))
+		if ($binding !== null and !(isset($binding['source']) or isset($binding['relation']) or isset($binding['query']) or isset($binding['expression'])))
 			$binding = null;
 		$boundList = null;
 		if ($binding !== null) {
@@ -248,12 +250,12 @@ class Renderer
 			// Count mode: repeat the authored group a fixed N times with the parent
 			// scope UNCHANGED (chips / leaf bindings inside still resolve against it).
 			// N is the bindable `count` config — a literal or bound to a scope field.
-			// Mirror of the JS walk (src/core/editor.js) — preview output is identical.
+			// Mirror of the JS walk (src/core/render.js) — preview output is identical.
 			$n = $this->resolveRepeatCount($rawConfig, $scope, $lang);
 			$ownId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
 			for ($i = 0; $i < $n; $i++) {
 				// Per-iteration nodeIdPrefix so a nested slider's carousel id stays
-				// unique across copies (mirror of the JS walk in src/core/editor.js).
+				// unique across copies (mirror of the JS walk in src/core/render.js).
 				$prefix = $nodeIdPrefix . $ownId . '-' . $i . '-';
 				$buf = '';
 				foreach ($kids as $child) {
@@ -271,7 +273,7 @@ class Renderer
 				$i = 0;
 				foreach ($list as $item) {
 					// Per-iteration nodeIdPrefix so a nested slider's carousel id stays
-					// unique across copies (mirror of the JS walk in src/core/editor.js).
+					// unique across copies (mirror of the JS walk in src/core/render.js).
 					$prefix = $nodeIdPrefix . $ownId . '-' . $i . '-';
 					$buf = '';
 					foreach ($kids as $child) {
@@ -544,14 +546,31 @@ class Renderer
 
 	// Mirror of _common.js computeExtraStyles. The inline-style counterpart of
 	// computeExtraClasses, passed to templates as $extraStyles (own style first,
-	// then this). Currently just border-radius; extensible hook for more.
+	// then this). Fixed part order (border-radius → page-break) for render parity.
 	public static function computeExtraStyles(array $config): string
 	{
 		$parts = [];
 		$br = self::borderRadiusStyle($config);
 		if ($br !== '')
 			$parts[] = $br;
+		$pb = self::pageBreakStyle($config);
+		if ($pb !== '')
+			$parts[] = $pb;
 		return implode(';', $parts);
+	}
+
+	// Mirror of _common.js PAGE_BREAK_STYLES: common `pageBreak` value → CSS.
+	public const PAGE_BREAK_STYLES = [
+		'avoid-inside' => 'break-inside:avoid',
+		'before' => 'break-before:page',
+		'after' => 'break-after:page',
+	];
+
+	// Mirror of _common.js pageBreakStyle. '' when absent/unknown.
+	public static function pageBreakStyle(array $config): string
+	{
+		$v = $config['pageBreak'] ?? null;
+		return (is_string($v) and isset(self::PAGE_BREAK_STYLES[$v])) ? self::PAGE_BREAK_STYLES[$v] : '';
 	}
 
 	// Mirror of _common.js dropHorizontalMargin. A centered Bootstrap `container`
@@ -647,7 +666,7 @@ class Renderer
 	// Mirror of _common.js pbNumberFormat. `decimals` is a STRING — '' keeps the
 	// source value's own decimal count (no rounding); otherwise a non-negative
 	// integer count. Non-numeric input returned unchanged. Delegates to native
-	// number_format (which rounds half away from zero — the JS mirror replicates it).
+	// a float-free digit rounding shared byte-for-byte with the JS mirror.
 	public static function pbNumberFormat($value, string $decimals, string $decSep, string $thouSep)
 	{
 		$raw = trim((string)($value ?? ''));
@@ -661,7 +680,64 @@ class Renderer
 			if ($prec < 0)
 				$prec = 0;
 		}
-		return number_format((float)$raw, $prec, $decSep, $thouSep);
+		[$neg, $int, $frac] = self::pbRoundDecimalString($raw, $prec);
+		// Thousands grouping from the right; no strrev (a multibyte separator such
+		// as a non-breaking space must not have its bytes reversed).
+		$len = strlen($int);
+		$first = $len % 3 === 0 ? 3 : $len % 3;
+		$groups = [substr($int, 0, $first)];
+		for ($i = $first; $i < $len; $i += 3)
+			$groups[] = substr($int, $i, 3);
+		return ($neg ? '-' : '') . implode($thouSep, $groups) . ($prec > 0 ? $decSep . $frac : '');
+	}
+
+	// Round a plain decimal string (`[+-]?digits[.digits]`, already regex-validated)
+	// half away from zero to `prec` decimals using DIGIT arithmetic — no floats.
+	// Mirror of _common.js pbRoundDecimalString: a float round diverges between
+	// the two runtimes on classic inputs (`1.005` → JS 1.00, number_format 1.01).
+	// Returns [neg, int, frac] with `frac` exactly `prec` digits; an all-zero
+	// result drops the sign (like PHP 8 number_format).
+	private static function pbRoundDecimalString(string $raw, int $prec): array
+	{
+		$s = $raw;
+		$neg = false;
+		if ($s !== '' and ($s[0] === '-' or $s[0] === '+')) {
+			$neg = $s[0] === '-';
+			$s = substr($s, 1);
+		}
+		$dot = strpos($s, '.');
+		$int = $dot === false ? $s : substr($s, 0, $dot);
+		$frac = $dot === false ? '' : substr($s, $dot + 1);
+		if (strlen($frac) > $prec) {
+			$roundUp = ord($frac[$prec]) >= 53; // '5'
+			$frac = substr($frac, 0, $prec);
+			if ($roundUp) {
+				// Increment int+frac as one digit string, carrying leftwards.
+				$digits = $int . $frac;
+				$i = strlen($digits) - 1;
+				while ($i >= 0) {
+					if ($digits[$i] === '9') {
+						$digits[$i] = '0';
+						$i--;
+					} else {
+						$digits[$i] = chr(ord($digits[$i]) + 1);
+						break;
+					}
+				}
+				if ($i < 0)
+					$digits = '1' . $digits;
+				$int = substr($digits, 0, strlen($digits) - $prec);
+				$frac = $prec > 0 ? substr($digits, -$prec) : '';
+			}
+		} else {
+			$frac = str_pad($frac, $prec, '0');
+		}
+		$int = ltrim($int, '0');
+		if ($int === '')
+			$int = '0';
+		if ($neg and trim($int . $frac, '0') === '')
+			$neg = false;
+		return [$neg, $int, $frac];
 	}
 
 	// Mirror of _common.js pbDateFormat. Parse a date/datetime/time value by REGEX
@@ -677,6 +753,11 @@ class Renderer
 		$Y = (int)$m[1];
 		$mon = (int)$m[2];
 		$d = (int)$m[3];
+		// The regex only checks digit counts; an out-of-range month would index past
+		// the weekday table (undefined-key warning). Treat it as unparseable (mirror
+		// of _common.js pbDateFormat).
+		if ($mon < 1 or $mon > 12 or $d < 1 or $d > 31)
+			return $value;
 		$H = isset($m[4]) ? (int)$m[4] : 0;
 		$I = isset($m[5]) ? (int)$m[5] : 0;
 		$S = isset($m[6]) ? (int)$m[6] : 0;

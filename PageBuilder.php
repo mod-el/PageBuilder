@@ -43,6 +43,11 @@ class PageBuilder extends Module
 
 		if (!is_array($value))
 			return '';
+		// A stored value that is an array but not a v1 document (`[]` / `{}` from an
+		// empty json column, a hand-edited row) must render empty, not throw
+		// Renderer's InvalidArgumentException on the public page.
+		if (($value['version'] ?? null) !== 1 or !is_array($value['root'] ?? null))
+			return '';
 
 		$lang ??= $this->currentLang();
 		return $this->getRenderer($forEditor)->render($value, ['lang' => $lang]);
