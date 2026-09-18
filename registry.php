@@ -24,4 +24,7 @@ return [
 	'fragment'  => ['multilang' => [],          'supportsCommon' => true],
 	'switch'       => ['multilang' => [],       'supportsCommon' => true],
 	'switch-space' => ['multilang' => [],       'supportsCommon' => false],
+	'table'        => ['multilang' => [],       'supportsCommon' => true, 'iterates' => true],
+	'key-value'    => ['multilang' => [],       'supportsCommon' => true],
+	'page-break'   => ['multilang' => [],       'supportsCommon' => false],
 ];

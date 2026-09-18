@@ -377,6 +377,51 @@ class Renderer
 		return '';
 	}
 
+	// Resolve one multilang value ({lang: v} map) with this renderer's fallback
+	// chain; a non-array passes through (null → ''). For templates resolving maps
+	// nested inside arrays (table column titles, key-value labels), which the
+	// registry `multilang` list does not reach. Mirror of multilang.js resolveValue.
+	public function resolveLangValue($value, string $lang)
+	{
+		if (!is_array($value))
+			return $value ?? '';
+		return $this->resolveValue($value, $lang);
+	}
+
+	// Horizontal alignments a table column may declare (inline `text-align`).
+	// Mirror of _common.js TEXT_ALIGNS.
+	public const TEXT_ALIGNS = ['left', 'center', 'right'];
+
+	// Mirror of _common.js hasFieldRef: a non-empty key/expression string or a
+	// complete nested-pick ref.
+	public static function hasFieldRef($field): bool
+	{
+		if (is_string($field))
+			return $field !== '';
+		return self::parseFieldRef($field) !== null;
+	}
+
+	// Mirror of _common.js fieldRows: the plain-object rows of a field-row list.
+	public static function fieldRows($value): array
+	{
+		if (!is_array($value) or !self::isList($value))
+			return [];
+		return array_values(array_filter($value, static function ($r) {
+			return is_array($r) and ($r === [] or !self::isList($r));
+		}));
+	}
+
+	// Mirror of _common.js fieldRowValue: resolved + formatted + escaped value of
+	// one field row through `$resolve($field)` (unescaped resolver).
+	public static function fieldRowValue(array $row, callable $resolve): string
+	{
+		$field = $row['field'] ?? null;
+		if (!self::hasFieldRef($field))
+			return '';
+		$format = (isset($row['format']) and is_string($row['format'])) ? $row['format'] : '';
+		return self::escapeHtml(self::formatChipValue($resolve($field), $format));
+	}
+
 	public static function escapeHtml($s): string
 	{
 		return htmlspecialchars((string)($s ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
