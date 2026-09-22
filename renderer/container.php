@@ -67,6 +67,24 @@ if ($maxWidth !== '')
 $height = Renderer::dimensionValue($config['height'] ?? null);
 if ($height !== '' and $height !== 'auto')
 	$styleParts[] = 'height:' . $height;
+// `overflow` (0.10.0): `hidden` clips what a fixed height cannot hold (the one
+// clamp print honours); `fade` also positions the box for the gradient overlay
+// appended after the children below. Fixed order after `height` (mirror of JS).
+$overflow = $config['overflow'] ?? '';
+if ($overflow === 'hidden' or $overflow === 'fade') {
+	$styleParts[] = 'overflow:hidden';
+	if ($overflow === 'fade')
+		$styleParts[] = 'position:relative';
+}
+// `fillPage` (print hosts): one printed page — forced breaks on both sides and a
+// minimum height equal to the host's `--pb-page-height` (absent → auto). Mirror of
+// FILL_PAGE_STYLES in the JS container, same fixed order after `height`.
+if (($config['fillPage'] ?? false) === true) {
+	$styleParts[] = 'min-height:var(--pb-page-height,auto)';
+	$styleParts[] = 'box-sizing:border-box';
+	$styleParts[] = 'break-before:page';
+	$styleParts[] = 'break-after:page';
+}
 // Common inline style (border-radius) last — own style first, mirror of JS render.
 if ($extraStyles !== '')
 	$styleParts[] = $extraStyles;
@@ -100,5 +118,13 @@ if ($isStack and count($children)) {
 	}
 } else {
 	$inner = implode('', $children);
+}
+// The fade overlay of `overflow: fade` comes last (mirror of the JS fadeHtml; the
+// defaults #ffffff / 30px are hardcoded on both sides, canonical JSON omits them).
+if ($overflow === 'fade') {
+	$fadeColor = (isset($config['fadeColor']) and is_string($config['fadeColor']) and trim($config['fadeColor']) !== '') ? trim($config['fadeColor']) : '#ffffff';
+	$fadeN = (isset($config['fadeSize']) and is_numeric($config['fadeSize'])) ? (float)$config['fadeSize'] : 0;
+	$fadeSize = $fadeN > 0 ? (string)$fadeN : '30';
+	$inner .= '<div class="pb-fade" style="position:absolute;left:0;right:0;bottom:0;height:' . $fadeSize . 'px;background:linear-gradient(transparent,' . $fadeColor . ');pointer-events:none"></div>';
 }
 echo '<div class="pb-container' . $containerCls . ' ' . $paddingCls . ' ' . $directionCls . $gapPart . $alignPart . $extra . '"' . $styleAttr . '>' . $inner . '</div>';

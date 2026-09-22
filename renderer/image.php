@@ -13,7 +13,13 @@ use Model\PageBuilder\Renderer;
 // current data item via $resolveField; an unmapped slot keeps its static value.
 // $resolveField returns the unescaped value, so escape here.
 $bindings = (isset($config['bindings']) and is_array($config['bindings'])) ? $config['bindings'] : [];
-$src = Renderer::escapeAttr(isset($bindings['src']) ? $resolveField($bindings['src']) : ($config['src'] ?? ''));
+// A bound src (a non-empty slot, like the JS truthy test) that resolves empty
+// falls back to `fallbackSrc` (0.10.0); a static src never does.
+$srcBound = (isset($bindings['src']) and $bindings['src'] !== '');
+$boundSrc = $srcBound ? $resolveField($bindings['src']) : '';
+$src = Renderer::escapeAttr($srcBound
+	? (($boundSrc !== '' and $boundSrc !== null) ? $boundSrc : ($config['fallbackSrc'] ?? ''))
+	: ($config['src'] ?? ''));
 $alt = Renderer::escapeAttr(isset($bindings['alt']) ? $resolveField($bindings['alt']) : ($config['alt'] ?? ''));
 $extra = $extraClasses !== '' ? ' ' . $extraClasses : '';
 // Optional explicit sizing (unit-aware), fixed order for byte-parity with the
@@ -25,6 +31,10 @@ foreach ([['width', 'width'], ['height', 'height'], ['maxWidth', 'max-width'], [
 	if ($dim !== '')
 		$styleParts[] = $pair[1] . ':' . $dim;
 }
+// `objectFit` (0.10.0): how the picture fills the sizes above, after them.
+$fit = $config['objectFit'] ?? '';
+if (is_string($fit) and in_array($fit, ['cover', 'contain', 'fill'], true))
+	$styleParts[] = 'object-fit:' . $fit;
 // Common inline style (border-radius) last — own sizing first, mirror of JS render.
 if ($extraStyles !== '')
 	$styleParts[] = $extraStyles;

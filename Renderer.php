@@ -175,7 +175,9 @@ class Renderer
 
 		$lang = (isset($opts['lang']) && is_string($opts['lang'])) ? $opts['lang'] : $this->defaultLang;
 
-		$out = '';
+		// Document `styles` (0.10.0): the fonts' @import + the author's CSS in one
+		// <style> ahead of the root nodes (mirror of the JS renderTree).
+		$out = self::documentStylesHtml((isset($doc['styles']) and is_array($doc['styles'])) ? $doc['styles'] : null);
 		foreach ($doc['root'] as $node) {
 			if (is_array($node))
 				$out .= $this->renderNode($node, $lang);
@@ -229,6 +231,18 @@ class Renderer
 			$boundList = $this->query($binding, $params, $scope, $lang);
 		}
 		$childItems = $boundList !== null ? $boundList : $items;
+		// An iterating node windows its list through its own `offset` / `limit`
+		// (0.10.0, foreach): the groups AND $items (a table's rows) see the slice.
+		// Mirror of the JS walk.
+		if (($meta['iterates'] ?? false) === true and $childItems !== null)
+			$childItems = self::sliceItems($childItems, $rawConfig);
+
+		// Conditional visibility (common `condition`, 0.10.0): judged in the node's
+		// own scope — the pinned item or the inherited one; for an iterating node the
+		// PARENT scope, before any row — and BEFORE the children render (mirror of the
+		// JS walk, which omits the node in preview; there is no edit mode here).
+		if ($supportsCommon and !self::conditionHolds($rawConfig, fn($ref) => $this->resolveField($ref, $scope, $lang)))
+			return '';
 
 		$kids = (isset($node['children']) and is_array($node['children'])) ? $node['children'] : [];
 		$children = [];
@@ -268,7 +282,7 @@ class Renderer
 			if ($boundList !== null or $items !== null) {
 				// Data-driven: render the authored group once per bound (own binding)
 				// or inherited (ancestor iterator) item.
-				$list = $boundList !== null ? $boundList : $items;
+				$list = $childItems;
 				$ownId = (isset($node['id']) and is_string($node['id'])) ? $node['id'] : '';
 				$i = 0;
 				foreach ($list as $item) {
@@ -419,7 +433,7 @@ class Renderer
 		if (!self::hasFieldRef($field))
 			return '';
 		$format = (isset($row['format']) and is_string($row['format'])) ? $row['format'] : '';
-		return self::escapeHtml(self::formatChipValue($resolve($field), $format));
+		return self::withLineBreaks(self::escapeHtml(self::formatChipValue($resolve($field), $format)));
 	}
 
 	public static function escapeHtml($s): string
@@ -591,7 +605,8 @@ class Renderer
 
 	// Mirror of _common.js computeExtraStyles. The inline-style counterpart of
 	// computeExtraClasses, passed to templates as $extraStyles (own style first,
-	// then this). Fixed part order (border-radius → page-break) for render parity.
+	// then this). Fixed part order (border-radius → page-break → flex) for render
+	// parity.
 	public static function computeExtraStyles(array $config): string
 	{
 		$parts = [];
@@ -601,7 +616,219 @@ class Renderer
 		$pb = self::pageBreakStyle($config);
 		if ($pb !== '')
 			$parts[] = $pb;
+		$fx = self::flexStyle($config);
+		if ($fx !== '')
+			$parts[] = $fx;
 		return implode(';', $parts);
+	}
+
+	// Mirror of _common.js flexStyle: the common `flexGrow` / `flexBasis` as one
+	// inline `flex` shorthand (+ `min-width:0`, so a flex item — an image — cannot
+	// keep its intrinsic minimum width), '' when neither is set.
+	public static function flexStyle(array $config): string
+	{
+		$grow = ($config['flexGrow'] ?? false) === true;
+		$basis = self::dimensionValue($config['flexBasis'] ?? null);
+		if (!$grow and $basis === '')
+			return '';
+		return 'flex:' . ($grow ? '1 1' : '0 0') . ' ' . ($basis !== '' ? $basis : '0%') . ';min-width:0';
+	}
+
+	// Mirror of _common.js conditionRef: the field reference of a node's common
+	// `condition` — the bindable slot (string or nested-pick array) wins over the
+	// literal key; '' = no condition.
+	public static function conditionRef(array $config)
+	{
+		$bound = (isset($config['bindings']) and is_array($config['bindings'])) ? ($config['bindings']['condition'] ?? null) : null;
+		if ((is_string($bound) and $bound !== '') or (is_array($bound) and !self::isList($bound)))
+			return $bound;
+		$literal = $config['condition'] ?? null;
+		return is_string($literal) ? trim($literal) : '';
+	}
+
+	// Mirror of _common.js conditionText: the text a resolved value is judged on
+	// (strings trimmed, numbers printed, true `1`, false / null '', a list '' when
+	// empty else `[list]`, any other array `[object]`).
+	public static function conditionText($value): string
+	{
+		if ($value === null)
+			return '';
+		if ($value === true)
+			return '1';
+		if ($value === false)
+			return '';
+		if (is_array($value)) {
+			if (self::isList($value))
+				return count($value) ? '[list]' : '';
+			return '[object]';
+		}
+		return trim((string)$value);
+	}
+
+	private const FALSY_WORDS = ['false', 'no', 'off', 'null'];
+
+	// Mirror of _common.js isFalsyText: '' / zero / false-ish words.
+	public static function isFalsyText(string $text): bool
+	{
+		return $text === '' or preg_match('/^[+-]?0*(\.0*)?$/', $text) === 1 or in_array(strtolower($text), self::FALSY_WORDS, true);
+	}
+
+	// Mirror of _common.js conditionHolds: true without a condition, else the
+	// operator (`conditionOp`, `not-empty` when unset / unknown) applied to the
+	// resolved value; `conditionValue` is the operand of the equality operators.
+	public static function conditionHolds(array $config, callable $resolve): bool
+	{
+		$ref = self::conditionRef($config);
+		if ($ref === '')
+			return true;
+		$text = self::conditionText($resolve($ref));
+		$op = (isset($config['conditionOp']) and is_string($config['conditionOp'])) ? $config['conditionOp'] : '';
+		$wanted = self::conditionText($config['conditionValue'] ?? null);
+		switch ($op) {
+			case 'empty':
+				return $text === '';
+			case 'truthy':
+				return !self::isFalsyText($text);
+			case 'falsy':
+				return self::isFalsyText($text);
+			case 'equals':
+				return $text === $wanted;
+			case 'not-equals':
+				return $text !== $wanted;
+			default:
+				return $text !== '';
+		}
+	}
+
+	// Mirror of _common.js typographyStyle: the inline declarations of the
+	// typography fields of `text` / `raw-html`, fixed order (font-family →
+	// font-size → font-weight → line-height → letter-spacing → text-transform →
+	// text-align → color); numbers through (float) like the JS `${n}`.
+	public static function typographyStyle(array $config): string
+	{
+		$parts = [];
+		$family = (isset($config['fontFamily']) and is_string($config['fontFamily'])) ? trim($config['fontFamily']) : '';
+		if ($family !== '')
+			$parts[] = 'font-family:' . $family;
+		$size = self::dimensionValue($config['fontSize'] ?? null);
+		if ($size !== '' and $size !== 'auto')
+			$parts[] = 'font-size:' . $size;
+		$weight = trim((string)($config['fontWeight'] ?? ''));
+		if (preg_match('/^[1-9]00$/', $weight))
+			$parts[] = 'font-weight:' . $weight;
+		$lineHeight = trim((string)($config['lineHeight'] ?? ''));
+		if (preg_match('/^\d*\.?\d+(px|%|em|rem)?$/', $lineHeight))
+			$parts[] = 'line-height:' . $lineHeight;
+		$spacingRaw = $config['letterSpacing'] ?? null;
+		if ($spacingRaw !== null and $spacingRaw !== '' and is_numeric($spacingRaw)) {
+			$spacing = (float)$spacingRaw;
+			if ($spacing != 0.0)
+				$parts[] = 'letter-spacing:' . (string)$spacing . 'px';
+		}
+		$transform = $config['textTransform'] ?? null;
+		if (is_string($transform) and in_array($transform, ['uppercase', 'lowercase', 'capitalize'], true))
+			$parts[] = 'text-transform:' . $transform;
+		$align = $config['textAlign'] ?? null;
+		if (is_string($align) and in_array($align, ['left', 'center', 'right', 'justify'], true))
+			$parts[] = 'text-align:' . $align;
+		$color = (isset($config['color']) and is_string($config['color'])) ? trim($config['color']) : '';
+		if ($color !== '')
+			$parts[] = 'color:' . $color;
+		return implode(';', $parts);
+	}
+
+	// A positive integer out of a config value (JS: Number.isInteger(Number(v)) && n > 0), else 0.
+	private static function positiveInt($v): int
+	{
+		if (!is_numeric($v))
+			return 0;
+		$f = (float)$v;
+		if ($f <= 0 or $f != floor($f))
+			return 0;
+		return (int)$f;
+	}
+
+	// Mirror of _common.js sliceItems: the rows an iterating node renders after
+	// its own `offset` / `limit` (0 = all); the same list when neither is set.
+	public static function sliceItems(array $list, array $config): array
+	{
+		$offset = self::positiveInt($config['offset'] ?? null);
+		$limit = self::positiveInt($config['limit'] ?? null);
+		if ($offset === 0 and $limit === 0)
+			return $list;
+		return array_slice(array_values($list), $offset, $limit > 0 ? $limit : null);
+	}
+
+	// Mirror of _common.js parseWidthsPattern: the `widths` pattern of a
+	// horizontal repeat ("26,48,26") as percentages (0 < n <= 100), invalid
+	// entries dropped, empty = no wrapping.
+	public static function parseWidthsPattern($spec): array
+	{
+		$str = is_string($spec) ? $spec : (string)$spec;
+		$out = [];
+		foreach (explode(',', $str) as $part) {
+			$part = trim($part);
+			if (!is_numeric($part))
+				continue;
+			$n = (float)$part;
+			if ($n > 0 and $n <= 100)
+				$out[] = $n;
+		}
+		return $out;
+	}
+
+	private const GOOGLE_FONTS_URL = 'https://fonts.googleapis.com/css2';
+
+	// Mirror of _common.js googleFontFamily: one `family=` query part out of a
+	// font spec ("Playfair Display", "Lato:300,400,700" → weights ascending).
+	public static function googleFontFamily($spec): string
+	{
+		$raw = trim((string)($spec ?? ''));
+		if ($raw === '')
+			return '';
+		$colon = strpos($raw, ':');
+		$name = preg_replace('/\s+/', '+', trim($colon === false ? $raw : substr($raw, 0, $colon)));
+		if ($name === '')
+			return '';
+		$weights = [];
+		if ($colon !== false) {
+			foreach (explode(',', substr($raw, $colon + 1)) as $w) {
+				$w = trim($w);
+				if (preg_match('/^[1-9]00$/', $w) and !in_array($w, $weights, true))
+					$weights[] = $w;
+			}
+			sort($weights, SORT_NUMERIC);
+		}
+		return 'family=' . $name . (count($weights) ? ':wght@' . implode(';', $weights) : '');
+	}
+
+	// Mirror of _common.js googleFontsImport: the `@import` of the document fonts.
+	public static function googleFontsImport($fonts): string
+	{
+		if (!is_array($fonts))
+			return '';
+		$families = [];
+		foreach ($fonts as $spec) {
+			$f = self::googleFontFamily($spec);
+			if ($f !== '')
+				$families[] = $f;
+		}
+		if (!count($families))
+			return '';
+		return '@import url("' . self::GOOGLE_FONTS_URL . '?' . implode('&', $families) . '&display=swap");';
+	}
+
+	// Mirror of _common.js documentStylesHtml: the <style> of a document's
+	// `styles` (fonts' @import first, then the CSS verbatim minus any `</style`).
+	public static function documentStylesHtml(?array $styles): string
+	{
+		if ($styles === null)
+			return '';
+		$imp = self::googleFontsImport($styles['fonts'] ?? null);
+		$css = (isset($styles['css']) and is_string($styles['css'])) ? trim(preg_replace('/<\/style\s*>?/i', '', $styles['css'])) : '';
+		if ($imp === '' and $css === '')
+			return '';
+		return '<style>' . $imp . (($imp !== '' and $css !== '') ? "\n" : '') . $css . '</style>';
 	}
 
 	// Mirror of _common.js PAGE_BREAK_STYLES: common `pageBreak` value → CSS.
@@ -663,23 +890,38 @@ class Renderer
 	// the whole attribute run is captured then field/format sub-extracted (order-
 	// independent). $resolve returns the unescaped value ('' when no provider/scope).
 	// Static-only fast path: content with no chip is returned untouched.
-	public static function resolveChips(string $html, callable $resolve): string
+	// $raw (the raw-html template): the chip is replaced by its formatted value
+	// VERBATIM — no span, no escaping; a string passes, a number prints as text,
+	// anything else is empty (the rule of the bound raw-html slot).
+	public static function resolveChips(string $html, callable $resolve, bool $raw = false): string
 	{
 		if (strpos($html, 'data-pb-field=') === false)
 			return $html;
 		return preg_replace_callback(
 			'/<span\b([^>]*\bdata-pb-field="[^"]*"[^>]*)>(.*?)<\/span>/s',
-			static function (array $m) use ($resolve): string {
+			static function (array $m) use ($resolve, $raw): string {
 				$attrs = $m[1];
 				if (!preg_match('/\bdata-pb-field="([^"]*)"/', $attrs, $km))
 					return $m[0];
 				$key = $km[1];
 				$fmt = preg_match('/\bdata-pb-format="([^"]*)"/', $attrs, $fm) ? $fm[1] : '';
+				if ($raw) {
+					$value = self::formatChipValue($resolve($key), $fmt);
+					return is_string($value) ? $value : ((is_int($value) or is_float($value)) ? (string)$value : '');
+				}
 				$fmtAttr = $fmt !== '' ? ' data-pb-format="' . $fmt . '"' : '';
-				return '<span data-pb-field="' . $key . '"' . $fmtAttr . '>' . self::chipEscape(self::formatChipValue($resolve($key), $fmt)) . '</span>';
+				return '<span data-pb-field="' . $key . '"' . $fmtAttr . '>' . self::withLineBreaks(self::chipEscape(self::formatChipValue($resolve($key), $fmt))) . '</span>';
 			},
 			$html
 		);
+	}
+
+	// Mirror of _common.js withLineBreaks: an ESCAPED value keeps its line breaks
+	// (`\r\n` / `\r` / `\n` → `<br>`, after escaping) in every escaped slot — a chip
+	// in a text, a table cell, a key-value cell. Raw chips are untouched.
+	public static function withLineBreaks(string $escaped): string
+	{
+		return preg_replace('/\r\n|\r|\n/', '<br>', $escaped);
 	}
 
 	// Mirror of _common.js formatChipValue. Apply a per-chip format SPEC (the

@@ -32,6 +32,12 @@ if (($config['direction'] ?? null) === 'grid') {
 	$inner = '';
 	foreach ($children as $i => $c)
 		$inner .= '<div class="' . Renderer::gridCellClasses($config['columns'] ?? '', $i) . '">' . $c . '</div>';
+} elseif (($config['direction'] ?? null) === 'horizontal' and count($widths = Renderer::parseWidthsPattern($config['widths'] ?? '')) > 0) {
+	// Horizontal widths (0.10.0): each group in a shrinkable flex cell of the cycled
+	// percentage (mirror of the JS preview branch; edit mode there is unwrapped).
+	$inner = '';
+	foreach (array_values($children) as $i => $c)
+		$inner .= '<div class="pb-repeat-item" style="flex:0 1 ' . (string)$widths[$i % count($widths)] . '%;min-width:0">' . $c . '</div>';
 } else {
 	$inner = implode('', $children);
 }
