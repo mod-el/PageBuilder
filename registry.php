@@ -27,4 +27,10 @@ return [
 	'table'        => ['multilang' => [],       'supportsCommon' => true, 'iterates' => true],
 	'key-value'    => ['multilang' => [],       'supportsCommon' => true],
 	'page-break'   => ['multilang' => [],       'supportsCommon' => false],
+	'section'        => ['multilang' => [],     'supportsCommon' => true],
+	'section-header' => ['multilang' => [],     'supportsCommon' => false],
+	'section-body'   => ['multilang' => [],     'supportsCommon' => false],
+	'section-footer' => ['multilang' => [],     'supportsCommon' => false],
+	'page-header'    => ['multilang' => [],     'supportsCommon' => true],
+	'page-footer'    => ['multilang' => [],     'supportsCommon' => true],
 ];

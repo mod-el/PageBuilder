@@ -619,7 +619,39 @@ class Renderer
 		$fx = self::flexStyle($config);
 		if ($fx !== '')
 			$parts[] = $fx;
+		$cs = self::columnSpanStyle($config);
+		if ($cs !== '')
+			$parts[] = $cs;
 		return implode(';', $parts);
+	}
+
+	// Mirror of _common.js columnSpanStyle: the common `columnSpan` → `column-span:all`
+	// (a node spanning every column of a `multicol` container), '' when unset.
+	public static function columnSpanStyle(array $config): string
+	{
+		return ($config['columnSpan'] ?? false) === true ? 'column-span:all' : '';
+	}
+
+	// Mirror of _common.js multicolumnCount: the column count of a `multicol`
+	// container — `columnCount` when an integer 2..12, else 2 (the schema default,
+	// hardcoded on both sides since canonical JSON omits untouched defaults).
+	public static function multicolumnCount(array $config): int
+	{
+		$raw = $config['columnCount'] ?? null;
+		if (is_string($raw) and preg_match('/^\s*-?\d+/', $raw, $m))
+			$raw = (int)$m[0];
+		if (is_float($raw))
+			$raw = (int)$raw;
+		return (is_int($raw) and $raw >= 2 and $raw <= 12) ? $raw : 2;
+	}
+
+	// Mirror of page-header/page-part.js pagePartHeight: the px height of a
+	// `page-header` / `page-footer` band — `height` when a positive number, else 60.
+	public static function pagePartHeight(array $config): string
+	{
+		$raw = $config['height'] ?? null;
+		$n = is_numeric($raw) ? (float)$raw : 0.0;
+		return $n > 0 ? (string)$n : '60';
 	}
 
 	// Mirror of _common.js flexStyle: the common `flexGrow` / `flexBasis` as one
@@ -1110,6 +1142,10 @@ class Renderer
 			return 'pb-stack';
 		if ($direction === 'grid')
 			return 'row';
+		// `multicol` is block flow too: the columns come from the container's
+		// inline `column-count` (mirror of _common.js directionClasses).
+		if ($direction === 'multicol')
+			return '';
 		return $direction === 'horizontal' ? 'd-flex flex-row' : 'd-flex flex-column';
 	}
 

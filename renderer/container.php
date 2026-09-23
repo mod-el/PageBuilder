@@ -41,6 +41,10 @@ if ($maxWidth === 'auto')
 	$maxWidth = '';
 $isStack = ($config['direction'] ?? null) === 'stack';
 $styleParts = [];
+// `multicol` (0.11.0): the children flow down N columns (CSS multi-column);
+// first in the style, fixed order (mirror of the JS containerStyle).
+if (($config['direction'] ?? null) === 'multicol')
+	$styleParts[] = 'column-count:' . Renderer::multicolumnCount($config);
 // `stack` overlays children: parent is a single-cell grid, each layer targets
 // that cell (grid-area:1/1, applied per layer below). Prepended so style order
 // stays byte-identical to the JS render (render-parity invariant).
